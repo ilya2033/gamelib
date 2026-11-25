@@ -32,7 +32,7 @@ Small releases keep each database migration easy to roll back. Each one is a sin
 
 ### 1.2 Build and distribute: GHCR (decided, set up 2026-11-25)
 
-The repository is `git@github.com:ilya2033/gamelib.git` (private), and the image is `ghcr.io/ilya2033/gamelib` (private package). The workflows live in `.github/workflows/`: `ci.yml` and `release.yml`.
+The repository is public on GitHub, and the image is a public GHCR package, `ghcr.io/<owner>/gamelib`. The workflows live in `.github/workflows/`: `ci.yml` and `release.yml`. Each release also attaches a ready-to-use `gamelib.xml` and `docker-compose.yml` with the owner filled in.
 
 | Option | How updates work in Unraid | Effort |
 |---|---|---|

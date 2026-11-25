@@ -37,41 +37,35 @@ downloads. One Flask app, SQLite, one container, no external services.
 
 ## Install on Unraid
 
-The image is published to a **private** GitHub Container Registry package,
-`ghcr.io/ilya2033/gamelib`. Each release is tagged `1.1.0`, `1.1` and
-`latest`. Unraid pulls it directly, so the server doesn't need the source
-code. To build it yourself instead, see [Building locally](#building-locally-fallback).
+Each release is published as a public image on GitHub Container Registry,
+`ghcr.io/<owner>/gamelib`, tagged with the exact version (`1.1.0`), the minor
+version (`1.1`) and `latest`. `<owner>` is the GitHub account that publishes
+GameLib: the owner of the repository you got it from. Pulling needs no login.
 
-### 1. Let Unraid log in to GHCR (once)
+Every [GitHub Release](../../releases/latest) also has two ready-to-use files
+attached, with the owner already filled in: **`gamelib.xml`** (Unraid template)
+and **`docker-compose.yml`**. The copies in this repository contain
+`__OWNER__` / `__REPO__` placeholders. Use the release files, or replace the
+placeholders yourself.
 
-1. **Create a token.** On GitHub go to **Settings → Developer settings → Personal access tokens → Tokens (classic) → Generate new token (classic)**. Name it `unraid-ghcr`, tick **only `read:packages`**, choose an expiry, and generate it. GHCR needs a *classic* token for this.
-2. **Log in from the Unraid terminal** (the *>_* icon in the top bar). Paste the token when it asks for a password:
-   ```bash
-   docker login ghcr.io -u ilya2033
-   ```
-3. **Keep the login across reboots.** Unraid keeps `/root` in memory, so the login is lost on every reboot. Copy it to the flash drive:
-   ```bash
-   mkdir -p /boot/config/docker-auth && cp /root/.docker/config.json /boot/config/docker-auth/config.json
-   ```
-   Then restore it at boot. Add this line to the end of `/boot/config/go` (for example with `nano /boot/config/go`):
-   ```bash
-   mkdir -p /root/.docker && cp /boot/config/docker-auth/config.json /root/.docker/config.json
-   ```
+### 1. Add the container template
 
-The token can only *read* packages, and it is stored on the flash drive. Revoke it on GitHub if the server or the flash drive is ever compromised. Repeat steps 1–3 when it expires.
+Download `gamelib.xml` from the latest release straight onto the flash drive
+(Unraid terminal: the *>_* icon in the top bar):
 
-### 2. Add the container template
+```bash
+wget -O /boot/config/plugins/dockerMan/templates-user/my-GameLib.xml \
+  https://github.com/<owner>/gamelib/releases/latest/download/gamelib.xml
+```
 
-Copy `unraid/gamelib.xml` from the repository to the flash drive as
-`config/plugins/dockerMan/templates-user/my-GameLib.xml`. Either:
+Or copy it over SMB to `\\TOWER\flash\config\plugins\dockerMan\templates-user\my-GameLib.xml`.
+The template's *TemplateURL* points at the latest release, so Unraid can pick
+up template changes later.
 
-- **Over SMB:** if the `flash` share is exported, copy to `\\TOWER\flash\config\plugins\dockerMan\templates-user\my-GameLib.xml`.
-- **In the Unraid terminal:** run `nano /boot/config/plugins/dockerMan/templates-user/my-GameLib.xml` and paste the file's contents.
-
-### 3. Create the container
+### 2. Create the container
 
 1. Go to **Docker → Add Container**.
-2. In the **Template** drop-down, pick **GameLib** under "User templates". The Repository field is already set to `ghcr.io/ilya2033/gamelib:latest`.
+2. In the **Template** drop-down, pick **GameLib** under "User templates". Repository is already set to `ghcr.io/<owner>/gamelib:latest`.
 3. Fill in the settings:
 
 | Setting | Container side | Default (host side) | Notes |
@@ -87,7 +81,7 @@ Copy `unraid/gamelib.xml` from the repository to the flash drive as
 | Secure cookie | `COOKIE_SECURE` | `0` | `1` only when served over HTTPS. *(advanced)* |
 | Max unpacked size | `MAX_UNCOMPRESSED_GB` | `500` | Zip-bomb guard. *(advanced)* |
 
-4. Click **Apply**. Unraid pulls the image from GHCR. If you see "denied" or "unauthorized", the GHCR login (step 1) is missing or expired. The container should turn *healthy* within about a minute.
+4. Click **Apply**. Unraid pulls the image, and the container should turn *healthy* within about a minute.
 
    If **App data** isn't mapped, the container refuses to start rather than storing your library somewhere it would be lost.
 5. Open **WebUI**, log in, then click **Scan** to import what's already on the share.
@@ -96,7 +90,20 @@ Before using a large upload, make sure **App data** has free space for the whole
 
 #### Alternative: Docker Compose Manager plugin
 
-`docker-compose.yml` has the same settings and uses `ghcr.io/ilya2033/gamelib:latest`. Do the GHCR login (step 1), edit the password, ports and paths, then *Compose Up*.
+Use `docker-compose.yml` from the latest release. It has the same settings and
+the image already filled in. Edit the password, ports and paths, then *Compose Up*.
+
+#### Publishing your own copy (fork)
+
+1. **Fork the repository.** Push a version tag (see [Releasing a new version](#releasing-a-new-version-if-you-change-the-code)), and the release workflow publishes `ghcr.io/<your-account>/gamelib` along with release files that point at it.
+2. **Make the image public.** New GHCR packages start **private**, even for a public repository. Make yours public once under *your profile → Packages → gamelib → Package settings → Change visibility*.
+3. **Or keep it private.** Unraid then needs a login:
+   - Create a classic token with only `read:packages`.
+   - Run `docker login ghcr.io -u <your-account>` on Unraid.
+   - Unraid keeps `/root` in memory, so persist the login across reboots: copy `/root/.docker/config.json` to `/boot/config/docker-auth/`, then add this line to `/boot/config/go`:
+     ```bash
+     mkdir -p /root/.docker && cp /boot/config/docker-auth/config.json /root/.docker/
+     ```
 
 #### Building locally (fallback)
 
@@ -104,11 +111,11 @@ Use this if GitHub is unavailable or you want to test unreleased code.
 
 1. Get the source onto the server, then build it:
    ```bash
-   git clone git@github.com:ilya2033/gamelib.git /mnt/user/appdata/gamelib-src
+   git clone https://github.com/<owner>/gamelib.git /mnt/user/appdata/gamelib-src
    cd /mnt/user/appdata/gamelib-src && sh ./scripts/build.sh
    ```
    This tags `gamelib:<version>` and `gamelib:latest`.
-2. Set the template's Repository to `gamelib:latest`. Apply shows a harmless "pull access denied" message for a local image, and Unraid's update check stays *not available*.
+2. Set the template's Repository to `gamelib:latest` (with the repository's own `unraid/gamelib.xml`, also replace the `__OWNER__` / `__REPO__` placeholders, or just set Repository). Apply shows a harmless "pull access denied" message for a local image, and Unraid's update check stays *not available*.
 
 Always build on the Unraid box itself: an image built on a Mac (ARM) won't run on an x86 server. To build on another machine anyway, run the following, then `docker save gamelib:X | ssh root@tower docker load`:
 
@@ -135,19 +142,19 @@ docker buildx build --platform linux/amd64 -t gamelib:X --load .
 
 ## Updating
 
-Releases are published as `ghcr.io/ilya2033/gamelib:<version>` (e.g. `1.1.0`),
+Releases are published as `ghcr.io/<owner>/gamelib:<version>` (e.g. `1.1.0`),
 `:<major.minor>` (e.g. `1.1`, which moves only on patch releases) and `:latest`.
 
-1. **Read `CHANGELOG.md`** for new settings and breaking changes.
+1. **Read the release notes** (the GitHub Release, or `CHANGELOG.md`) for new settings and breaking changes.
 2. **Pull the update.** In the **Docker** tab, click **Check for updates**, then **Apply update** on GameLib. Unraid pulls the new image and recreates the container. Your data lives in the mapped folders, so nothing is lost.
-   - If the check shows *not available* even though a release is out, click the GameLib icon and choose **Force update**. Unraid's update check doesn't always handle private registries. Also confirm the GHCR login hasn't expired.
-   - If you rolled back earlier, Repository is still pinned to an old tag. Set it back to `ghcr.io/ilya2033/gamelib:latest` first.
+   - If the check shows *not available* even though a release is out, click the GameLib icon and choose **Force update**.
+   - If you rolled back earlier, Repository is still pinned to an old tag. Set it back to `ghcr.io/<owner>/gamelib:latest` first.
 3. **Migrations.** On start, the app checks the database schema version (`PRAGMA user_version`).
    - If a migration is needed, it **first copies the database to `/data/backups/gamelib-<date>-pre-v<N>.db`**, then migrates. Both steps are logged.
    - The 5 newest pre-migration backups and the 10 newest manual backups are kept, each counted separately. Routine manual backups never remove a pre-migration backup.
 4. The footer of every page shows the running version.
 
-To stay on one minor version and get only bug-fix releases automatically, set Repository to `ghcr.io/ilya2033/gamelib:1.1`.
+To stay on one minor version and get only bug-fix releases automatically, set Repository to `ghcr.io/<owner>/gamelib:1.1`.
 
 ### Rolling back
 
@@ -156,7 +163,7 @@ To stay on one minor version and get only bug-fix releases automatically, set Re
    ls /mnt/user/appdata/gamelib/backups/*pre-v*
    ```
    This is only needed if the update changed the schema.
-1. Edit the container and set **Repository** to the previous version, for example `ghcr.io/ilya2033/gamelib:1.1.0`. Click **Apply**.
+1. Edit the container and set **Repository** to the previous version, for example `ghcr.io/<owner>/gamelib:1.1.0`. Click **Apply**.
 2. If the newer version migrated the database, the older image refuses to start and says the data is newer. In that case:
    1. Stop the container.
    2. Restore the `pre-v<N>` backup:
@@ -167,9 +174,9 @@ To stay on one minor version and get only bug-fix releases automatically, set Re
 
    Anything you changed after the upgrade is lost.
 
-When a fixed release is out, set **Repository** back to `ghcr.io/ilya2033/gamelib:latest` so normal updates work again.
+When a fixed release is out, set **Repository** back to `ghcr.io/<owner>/gamelib:latest` so normal updates work again.
 
-Every published version is listed at https://github.com/ilya2033/gamelib/pkgs/container/gamelib. The first one published to GHCR is 1.1.0; 1.0.x existed only as local builds.
+Every published version is listed on the repository's **Packages** page (`gamelib`). The first one published to GHCR is 1.1.0; 1.0.x existed only as local builds.
 
 ### Releasing a new version (if you change the code)
 
@@ -180,7 +187,7 @@ Every published version is listed at https://github.com/ilya2033/gamelib/pkgs/co
    ```bash
    git commit -am "Release 1.2.0" && git tag -a v1.2.0 -m "GameLib 1.2.0" && git push origin main v1.2.0
    ```
-5. GitHub Actions (`.github/workflows/release.yml`) runs the tests, checks the tag, builds amd64 and arm64 images, and pushes `:1.2.0`, `:1.2` and `:latest`. Progress is under the repository's **Actions** tab.
+5. GitHub Actions (`.github/workflows/release.yml`) runs the tests, checks the tag, builds amd64 and arm64 images, and pushes `:1.2.0`, `:1.2` and `:latest`. It then creates a GitHub Release with that version's `CHANGELOG.md` section as notes, and attaches `gamelib.xml` and `docker-compose.yml` with the owner filled in. Progress is under the repository's **Actions** tab.
    - A tag like `v1.2.0-rc1` publishes `:1.2.0-rc1` only, without moving `:latest`. Use it to try a release on Unraid first.
 
 ## Backup
@@ -245,7 +252,8 @@ DATA_DIR=./dev/data GAMES_DIR=./dev/games GAMELIB_PASSWORD=demo .venv/bin/gunico
 
 ## Troubleshooting
 
-- **"denied" / "unauthorized" when pulling:** the GHCR login is missing, expired, or lost after a reboot. Redo [step 1](#1-let-unraid-log-in-to-ghcr-once), including the `/boot/config/go` line.
+- **"denied" / "unauthorized" when pulling:** the image is private. Either make the package public (see [Publishing your own copy](#publishing-your-own-copy-fork)) or set up the GHCR login described there.
+- **Template still shows `__OWNER__`:** you used the repository's copy of `gamelib.xml`. Download it from the latest release instead, or edit Repository by hand.
 - **Container stops right away:** check the logs. There are two likely causes:
   - `GAMELIB_PASSWORD is not set` means you need to fill in Password.
   - `/data is not mapped` means you need to set the App data path.

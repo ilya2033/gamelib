@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- **Public:** the repository and image are public, so Unraid pulls `ghcr.io/<owner>/gamelib` without a registry login.
+- **Release files:** each GitHub Release has a ready-to-use `gamelib.xml` (Unraid template) and `docker-compose.yml` attached, with the owner filled in. The repository copies use `__OWNER__` / `__REPO__` placeholders.
+- **Template updates:** the template's TemplateURL points at the latest release, so Unraid can pick up template changes.
+- **Compose:** the example timezone defaults to `Etc/UTC`.
+
 ## 1.1.0 (2026-11-25)
 
 Adds game statuses. **Database schema v1 → v2.** The app backs up the database to `/data/backups/gamelib-…-pre-v2.db` before migrating. To roll back to 1.0.x, restore that file (see README, "Rolling back").

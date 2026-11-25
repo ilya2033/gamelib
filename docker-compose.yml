@@ -1,12 +1,12 @@
 # For Unraid's "Docker Compose Manager" plugin or plain `docker compose`.
 # The Unraid template in unraid/gamelib.xml is the alternative to this file.
 #
-# Uses the private GHCR image: run `docker login ghcr.io -u ilya2033` once
-# (token with read:packages, see README). To use a local build instead, set
-# image to gamelib:latest after running `sh ./scripts/build.sh`.
+# Use the copy attached to the latest GitHub Release (owner filled in), or
+# replace __OWNER__ below with the GitHub account that publishes the image.
+# For a local build, set image to gamelib:latest after `sh ./scripts/build.sh`.
 services:
   gamelib:
-    image: ghcr.io/ilya2033/gamelib:latest   # or pin: :1.1 (patch updates) / :1.1.0 (frozen)
+    image: ghcr.io/__OWNER__/gamelib:latest   # or pin: :1.1 (patch updates) / :1.1.0 (frozen)
     container_name: gamelib
     restart: unless-stopped
     ports:
@@ -17,7 +17,7 @@ services:
       PUID: "99"
       PGID: "100"
       UMASK: "002"
-      TZ: Europe/Kyiv              # set to your timezone
+      TZ: Etc/UTC                  # set to your timezone, e.g. Europe/Berlin
       MAX_UNCOMPRESSED_GB: "500"
       # TRUSTED_ORIGINS: games.example.com:8443   # reverse proxy that rewrites Host / non-standard port
       # COOKIE_SECURE: "1"                        # only when served over HTTPS

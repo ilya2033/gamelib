@@ -1,0 +1,67 @@
+# Creates (or updates) the GitHub Release for a version tag and attaches
+# ready-to-use install files with the owner filled in:
+#   gamelib.xml          Unraid template (Repository, TemplateURL, links)
+#   docker-compose.yml   compose file pointing at the published image
+# Called by release.yml after the image is pushed. Can also be run by hand
+# (Actions → release-files → Run workflow) for an existing tag.
+name: release-files
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing version tag, e.g. v1.1.0"
+        type: string
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      # On a tag push this is the tag's commit. When run by hand, it is the
+      # branch you pick (normally main), so older tags get the current
+      # install files and the notes from the current CHANGELOG.
+      - uses: actions/checkout@v4
+      - name: Render install files
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"   # GHCR image names are lowercase
+          mkdir dist
+          for f in unraid/gamelib.xml docker-compose.yml; do
+            sed -e "s#__OWNER__#${owner}#g" -e "s#__REPO__#${GITHUB_REPOSITORY}#g" "$f" > "dist/$(basename "$f")"
+          done
+          if grep -n "__OWNER__\|__REPO__" dist/*; then
+            echo "::error::Placeholders left in install files"; exit 1
+          fi
+          v="${TAG#v}"
+          awk -v v="$v" 'index($0, "## " v " ") == 1 {f=1; next} /^## / && f {exit} f' CHANGELOG.md > dist/notes.md
+          [ -s dist/notes.md ] || echo "GameLib $v" > dist/notes.md
+          {
+            echo ""
+            echo "**Image:** \`ghcr.io/${owner}/gamelib:${v}\` (also \`:${v%.*}\` and \`:latest\` for stable releases)"
+            echo ""
+            echo "**Unraid:** download \`gamelib.xml\` below into \`/boot/config/plugins/dockerMan/templates-user/my-GameLib.xml\`, then Docker → Add Container → GameLib."
+          } >> dist/notes.md
+      - name: Create or update the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          pre=""
+          case "$TAG" in *-*) pre="--prerelease" ;; esac
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/gamelib.xml dist/docker-compose.yml --clobber
+            gh release edit "$TAG" --notes-file dist/notes.md
+          else
+            gh release create "$TAG" dist/gamelib.xml dist/docker-compose.yml \
+              --title "GameLib ${TAG#v}" --notes-file dist/notes.md --verify-tag $pre
+          fi
