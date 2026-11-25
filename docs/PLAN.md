@@ -30,7 +30,9 @@ See §8.
 
 Small releases keep each database migration easy to roll back. Each one is a single `MIGRATIONS` entry, with an automatic backup before it runs. A failed release only costs you the one feature in it.
 
-### 1.2 Build and distribute: GHCR (decided)
+### 1.2 Build and distribute: GHCR (decided, set up 2026-11-25)
+
+The repository is `git@github.com:ilya2033/gamelib.git` (private), and the image is `ghcr.io/ilya2033/gamelib` (private package). The workflows live in `.github/workflows/`: `ci.yml` and `release.yml`.
 
 | Option | How updates work in Unraid | Effort |
 |---|---|---|

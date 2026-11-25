@@ -3,17 +3,18 @@
   Unraid Docker template for GameLib.
   Install: copy to /boot/config/plugins/dockerMan/templates-user/my-GameLib.xml,
   then Docker tab > Add Container > Template: GameLib. See README.md.
+  The image is a private GHCR package: run `docker login ghcr.io` on Unraid first.
 -->
 <Container version="2">
   <Name>GameLib</Name>
-  <Repository>gamelib:latest</Repository>
-  <Registry/>
+  <Repository>ghcr.io/ilya2033/gamelib:latest</Repository>
+  <Registry>https://github.com/ilya2033/gamelib/pkgs/container/gamelib</Registry>
   <Network>bridge</Network>
   <MyIP/>
   <Shell>sh</Shell>
   <Privileged>false</Privileged>
-  <Support/>
-  <Project/>
+  <Support>https://github.com/ilya2033/gamelib/issues</Support>
+  <Project>https://github.com/ilya2033/gamelib</Project>
   <Overview>Self-hosted game library. Tracks the game folders on your games share (one folder per version), with cover grid, tags, version history, uploads into the share and zip downloads. Single user, LAN.</Overview>
   <Category>Tools: Other:</Category>
   <WebUI>http://[IP]:[PORT:8080]/</WebUI>
@@ -25,7 +26,7 @@
   <DateInstalled/>
   <DonateText/>
   <DonateLink/>
-  <Requires>Build the image first on the Unraid server: ./scripts/build.sh (see README).</Requires>
+  <Requires>Private image: log in once with 'docker login ghcr.io -u ilya2033' using a GitHub token with read:packages, and persist it via /boot/config/go (see README).</Requires>
 
   <Config Name="WebUI port" Target="8080" Default="8080" Mode="tcp"
           Description="Host port for the library UI. The container always listens on 8080; change only this value if 8080 is taken."
