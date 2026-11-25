@@ -1,11 +1,34 @@
 # Changelog
 
-## Unreleased
+## 1.2.0 (2026-11-26)
 
-- **Public:** the repository and image are public, so Unraid pulls `ghcr.io/<owner>/gamelib` without a registry login.
-- **Release files:** each GitHub Release has a ready-to-use `gamelib.xml` (Unraid template) and `docker-compose.yml` attached, with the owner filled in. The repository copies use `__OWNER__` / `__REPO__` placeholders.
-- **Template updates:** the template's TemplateURL points at the latest release, so Unraid can pick up template changes.
-- **Compose:** the example timezone defaults to `Etc/UTC`.
+Subfolders become groups and categories. **Database schema v2 → v3.** The app backs up the database to `/data/backups/gamelib-…-pre-v3.db` before migrating. To roll back to 1.1.x, restore that file (see README, "Rolling back").
+
+**Groups and categories**
+- Version folders can now live in subfolders of the share, up to `SCAN_DEPTH` levels deep (default 3, a new advanced template setting).
+- The first folder level is the **group**, shown as tabs above the grid, with an optional `folder.jpg` icon. Deeper levels are **categories**, shown as a tree in the sidebar. Filtering by a category includes its subcategories.
+- A game's group and category follow its latest version's location and update automatically.
+- You can add your own **categories** (for example Favourites) when adding or editing a game.
+
+**Scan**
+- Walks nested folders. A folder with a version in its name, or with files directly inside, is a game. Otherwise it is a group or category.
+- If a folder is detected wrongly, use **this is a group** / **This is a game**. The choice is remembered.
+- NAS metadata folders (`@eaDir`, `#recycle`) and symlinks are skipped.
+- **Moved folders:** when a tracked folder disappears and a folder with the same name appears elsewhere, Scan offers **Relink**, keeping history, notes and status.
+
+**Upload**
+- A new **Destination** picker lets you choose the top level or any group/category folder, plus an optional new subfolder.
+- New versions default to the folder of the game's latest version.
+- Destinations through a symlink, or deeper than `SCAN_DEPTH`, are refused.
+
+**Publishing**
+- The repository and image are public, so Unraid pulls `ghcr.io/<owner>/gamelib` without a registry login.
+- Each GitHub Release has a ready-to-use `gamelib.xml` (Unraid template) and `docker-compose.yml` attached, with the owner filled in. The repository copies use `__OWNER__` / `__REPO__` placeholders.
+- The template's TemplateURL points at the latest release.
+
+**Other**
+- The folder layout is cached for 60 s, so browsing doesn't keep waking spun-down disks. Scan always reads fresh.
+- The example compose timezone defaults to `Etc/UTC`.
 
 ## 1.1.0 (2026-11-25)
 

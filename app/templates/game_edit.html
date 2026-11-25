@@ -11,7 +11,10 @@
       <label>Title<input name="title" required maxlength="200" value="{{ request.form.get('title', game.title) }}"></label>
       <label>Platform<select name="platform">{{ platform_options(request.form.get('platform', game.platform)) }}</select></label>
     </div>
-    <label>Tags<input name="tags" value="{{ tags|join(', ') }}"><small>Comma separated</small></label>
+    <div class="grid2">
+      <label>Tags<input name="tags" value="{{ tags|join(', ') }}"><small>Comma separated</small></label>
+      <label>Categories<input name="categories" value="{{ categories|join(', ') }}" placeholder="Favourites, Couch co-op"><small>Your own, comma separated. The folder group/category follows the share and can't be edited here.</small></label>
+    </div>
     <label>Description<textarea name="description" rows="6">{{ request.form.get('description', game.description) }}</textarea></label>
     <div class="cover-edit">
       {{ cover(game, 'thumb') }}

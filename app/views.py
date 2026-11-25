@@ -2,7 +2,10 @@ import json
 import os
 import re
 import shutil
+import threading
+import time
 import uuid
+from collections import defaultdict
 from datetime import datetime, timezone
 from urllib.parse import quote, unquote
 
@@ -59,9 +62,175 @@ def tracked_folders():
     return {r["folder"] for r in get_db().execute("SELECT folder FROM versions")}
 
 
-def untracked_folders():
+# The share layout (which folders are versions, which are groups) is cached
+# briefly: walking nested folders on every page load would keep waking
+# spun-down Unraid disks. Pages that act on the share pass fresh=True, and
+# every write the app makes to the share or the versions table invalidates it.
+_layout = {"key": None, "at": 0.0, "value": None}
+_layout_lock = threading.Lock()
+
+
+def invalidate_layout():
+    with _layout_lock:
+        _layout["at"] = 0.0
+
+
+def folder_rules():
+    return {r["path"]: r["kind"] for r in get_db().execute("SELECT path, kind FROM folder_rules")}
+
+
+def share_layout(fresh=False):
+    """(untracked version folders, group folders), both share-relative."""
+    key = (games_dir(), cfg("DB_PATH"), cfg("SCAN_DEPTH"))
+    ttl = cfg("LAYOUT_CACHE_SECONDS")
+    with _layout_lock:
+        if not fresh and _layout["key"] == key and time.monotonic() - _layout["at"] < ttl:
+            return _layout["value"]
     tracked = tracked_folders()
-    return [f for f in storage.list_folders(games_dir()) if f not in tracked]
+    games, groups = [], []
+    for kind, p in storage.walk_share(games_dir(), folder_rules(), cfg("SCAN_DEPTH"), tracked):
+        (games if kind == "game" else groups).append(p)
+    value = ([p for p in games if p not in tracked], groups)
+    with _layout_lock:
+        _layout.update(key=key, at=time.monotonic(), value=value)
+    return value
+
+
+def untracked_folders(fresh=True):
+    return share_layout(fresh)[0]
+
+
+def group_folders(fresh=True):
+    return share_layout(fresh)[1]
+
+
+# ------------------------------------------------------------ categories
+
+def ensure_category_path(path):
+    """Create the folder-derived category chain for 'PC/Strategy' and return
+    the id of the last one. Level 1 is a group."""
+    db, parent, cur, cid = get_db(), None, "", None
+    for i, name in enumerate(path.split("/")):
+        cur = f"{cur}/{name}" if cur else name
+        row = db.execute("SELECT id FROM categories WHERE path=?", (cur,)).fetchone()
+        if row:
+            cid = row["id"]
+        else:
+            cid = db.execute("INSERT INTO categories(parent_id,name,is_group,path) VALUES (?,?,?,?)",
+                             (parent, name, 1 if i == 0 else 0, cur)).lastrowid
+        parent = cid
+    return cid
+
+
+def prune_categories():
+    """Drop folder-derived categories with no games and no children, and
+    manual categories no game uses any more."""
+    db = get_db()
+    while True:
+        n = db.execute(
+            "DELETE FROM categories WHERE id NOT IN (SELECT category_id FROM game_categories) "
+            "AND id NOT IN (SELECT parent_id FROM categories WHERE parent_id IS NOT NULL)").rowcount
+        if not n:
+            break
+
+
+def sync_folder_categories(gid):
+    """Group/category of a game = location of its latest version on the share."""
+    db = get_db()
+    db.execute("DELETE FROM game_categories WHERE game_id=? AND source='folder'", (gid,))
+    latest = db.execute("SELECT folder FROM versions WHERE game_id=? ORDER BY added_at DESC, id DESC LIMIT 1",
+                        (gid,)).fetchone()
+    if latest:
+        group, category = storage.location(latest["folder"])
+        for path in filter(None, (group, category)):
+            db.execute("INSERT OR REPLACE INTO game_categories(game_id,category_id,source) VALUES (?,?,'folder')",
+                       (gid, ensure_category_path(path)))
+    prune_categories()
+
+
+def parse_categories(text):
+    return parse_tags(text)  # same rules: comma separated, trimmed, de-duplicated
+
+
+def manual_categories(gid):
+    return get_db().execute(
+        "SELECT c.id, c.name FROM categories c JOIN game_categories gc ON gc.category_id=c.id "
+        "WHERE gc.game_id=? AND c.path IS NULL ORDER BY c.name COLLATE NOCASE", (gid,)).fetchall()
+
+
+def set_manual_categories(gid, names, source="user"):
+    db = get_db()
+    db.execute("DELETE FROM game_categories WHERE game_id=? AND category_id IN "
+               "(SELECT id FROM categories WHERE path IS NULL)", (gid,))
+    for name in names:
+        row = db.execute("SELECT id FROM categories WHERE path IS NULL AND name=? COLLATE NOCASE",
+                         (name,)).fetchone()
+        cid = row["id"] if row else db.execute(
+            "INSERT INTO categories(parent_id,name,is_group,path) VALUES (NULL,?,0,NULL)", (name,)).lastrowid
+        db.execute("INSERT OR IGNORE INTO game_categories(game_id,category_id,source) VALUES (?,?,?)",
+                   (gid, cid, source))
+    prune_categories()
+
+
+def game_location(gid):
+    """(group row, deepest folder category row) for the detail page."""
+    rows = get_db().execute(
+        "SELECT c.* FROM categories c JOIN game_categories gc ON gc.category_id=c.id "
+        "WHERE gc.game_id=? AND gc.source='folder' ORDER BY length(c.path)", (gid,)).fetchall()
+    group = next((r for r in rows if r["is_group"]), None)
+    cat = next((r for r in rows if not r["is_group"]), None)
+    return group, cat
+
+
+def category_chain(cat):
+    """Ancestors of a category, root first (for breadcrumbs)."""
+    chain, db = [], get_db()
+    while cat is not None:
+        chain.append(cat)
+        cat = db.execute("SELECT * FROM categories WHERE id=?", (cat["parent_id"],)).fetchone() \
+            if cat["parent_id"] else None
+    return list(reversed(chain))
+
+
+def library_tree(selected_group=None):
+    """Sidebar data: groups with game counts, and a flat, indented list of
+    categories (descendant games counted once) under the selected group, or
+    under every group, plus manual categories."""
+    db = get_db()
+    cats = {r["id"]: dict(r) for r in db.execute("SELECT * FROM categories")}
+    members = defaultdict(set)
+    for r in db.execute("SELECT game_id, category_id FROM game_categories"):
+        members[r["category_id"]].add(r["game_id"])
+    children = defaultdict(list)
+    for c in cats.values():
+        children[c["parent_id"]].append(c)
+    for lst in children.values():
+        lst.sort(key=lambda c: storage.natural_key(c["name"]))
+
+    def games_under(cid):
+        out = set(members[cid])
+        for ch in children[cid]:
+            out |= games_under(ch["id"])
+        return out
+
+    groups = [dict(c, n=len(games_under(c["id"])), has_icon=bool(group_icon_path(c["path"])))
+              for c in children[None] if c["is_group"]]
+    flat = []
+
+    def walk(cid, depth):
+        for ch in children[cid]:
+            flat.append(dict(ch, depth=depth, n=len(games_under(ch["id"]))))
+            walk(ch["id"], depth + 1)
+
+    if selected_group:
+        walk(selected_group, 0)
+    else:
+        for g in groups:
+            if children[g["id"]]:
+                flat.append(dict(g, depth=0, n=g["n"], heading=True))
+                walk(g["id"], 1)
+    manual = [dict(c, n=len(members[c["id"]])) for c in children[None] if c["path"] is None]
+    return groups, flat, manual
 
 
 def get_game(gid):
@@ -101,7 +270,7 @@ def set_tags(gid, tags):
     for t in tags:
         db.execute("INSERT OR IGNORE INTO tags(name) VALUES (?)", (t,))
         tid = db.execute("SELECT id FROM tags WHERE name=?", (t,)).fetchone()["id"]
-        db.execute("INSERT OR IGNORE INTO game_tags VALUES (?,?)", (gid, tid))
+        db.execute("INSERT OR IGNORE INTO game_tags(game_id, tag_id) VALUES (?,?)", (gid, tid))
     db.execute("DELETE FROM tags WHERE id NOT IN (SELECT tag_id FROM game_tags)")
 
 
@@ -164,8 +333,9 @@ def materialize_source(form, title, label):
         folder = form.get("folder", "")
         if folder not in untracked_folders():
             raise UserError("Pick an untracked folder from the games share.")
-        storage.resolve_in(games_dir(), folder)
+        storage.resolve_no_links(games_dir(), folder)
         return folder
+    parent = destination_from_form(form)
     upload_id = form.get("upload_id", "")
     if not UPLOAD_ID.match(upload_id):
         raise UserError("Upload a file first and wait for it to finish.")
@@ -175,12 +345,39 @@ def materialize_source(form, title, label):
     with open(meta_path) as f:
         meta = json.load(f)
     try:
-        return storage.install_upload(data_path, meta["filename"], games_dir(),
-                                      f"{title} v{label}", cfg("MAX_UNCOMPRESSED_BYTES"))
+        created = storage.make_dirs_in(games_dir(), parent)
+        for p in created:  # folders made for the destination are groups, whatever their name
+            get_db().execute("INSERT OR REPLACE INTO folder_rules(path, kind) VALUES (?, 'group')", (p,))
+        folder = storage.install_upload(data_path, meta["filename"], games_dir(),
+                                        f"{title} v{label}", cfg("MAX_UNCOMPRESSED_BYTES"), parent)
+        invalidate_layout()
+        return folder
     except UnsafeZip as e:
         raise UserError(f"Rejected zip: {e}") from None
     finally:
         discard_upload(upload_id)
+
+
+def destination_from_form(form):
+    """Share subfolder an upload goes into: an existing group folder (or the
+    top level), optionally plus a new subfolder typed by the user."""
+    dest = form.get("dest", "")
+    if dest and dest not in group_folders():
+        raise UserError("Pick a destination folder from the list.")
+    extra = storage.clean_subpath(form.get("dest_new", ""))
+    parent = "/".join(p for p in (dest, extra) if p)
+    if parent.count("/") + 1 >= cfg("SCAN_DEPTH"):
+        raise UserError(f"That destination is too deep: scans look {cfg('SCAN_DEPTH')} folder levels deep, "
+                        "so the game folder would not be found. Pick a shallower destination.")
+    return parent
+
+
+def default_destination(gid):
+    """New versions go next to the game's latest version by default."""
+    row = get_db().execute("SELECT folder FROM versions WHERE game_id=? ORDER BY added_at DESC, id DESC LIMIT 1",
+                           (gid,)).fetchone()
+    parent = row["folder"].rpartition("/")[0] if row else ""
+    return parent if parent in group_folders() else ""
 
 
 def insert_version(gid, label, folder, notes="", added_at=None):
@@ -190,6 +387,8 @@ def insert_version(gid, label, folder, notes="", added_at=None):
         "INSERT INTO versions(game_id,label,folder,notes,size_bytes,added_at) VALUES (?,?,?,?,?,?)",
         (gid, label, folder, notes, storage.folder_size(path), added_at))
     get_db().execute("UPDATE games SET updated_at=max(updated_at, ?) WHERE id=?", (added_at, gid))
+    sync_folder_categories(gid)
+    invalidate_layout()
 
 
 def delete_folder(folder):
@@ -201,6 +400,7 @@ def delete_folder(folder):
         return False
     if os.path.isdir(path):
         shutil.rmtree(path)
+        invalidate_layout()
         return True
     return False
 
@@ -262,6 +462,8 @@ def index():
     platform = request.args.get("platform", "")
     tag = request.args.get("tag", "")
     status = request.args.get("status", "")
+    group = request.args.get("group", "")
+    category = request.args.get("category", "")
     sort = request.args.get("sort", "name")
     if sort not in SORTS:
         sort = "name"
@@ -287,11 +489,24 @@ def index():
     if status:
         where.append("s.key=?")
         args.append(status)
+    if group == "none":
+        where.append("NOT EXISTS (SELECT 1 FROM game_categories gc JOIN categories c ON c.id=gc.category_id "
+                     "WHERE gc.game_id=g.id AND c.is_group=1)")
+    elif group.isdigit():
+        where.append("EXISTS (SELECT 1 FROM game_categories gc WHERE gc.game_id=g.id AND gc.category_id=?)")
+        args.append(int(group))
+    if category.isdigit():
+        where.append("EXISTS (SELECT 1 FROM game_categories gc WHERE gc.game_id=g.id AND gc.category_id IN ("
+                     "WITH RECURSIVE sub(id) AS (SELECT ? UNION SELECT c.id FROM categories c "
+                     "JOIN sub ON c.parent_id=sub.id) SELECT id FROM sub))")
+        args.append(int(category))
     sql = (
         "SELECT g.*, s.key AS status_key, s.label AS status_label, s.color AS status_color, "
         "(SELECT label FROM versions v WHERE v.game_id=g.id ORDER BY v.added_at DESC, v.id DESC LIMIT 1) AS latest, "
         "(SELECT COUNT(*) FROM versions v WHERE v.game_id=g.id) AS nversions, "
-        "(SELECT group_concat(t.name, '\x1f') FROM game_tags gt JOIN tags t ON t.id=gt.tag_id WHERE gt.game_id=g.id) AS tagstr "
+        "(SELECT group_concat(t.name, '\x1f') FROM game_tags gt JOIN tags t ON t.id=gt.tag_id WHERE gt.game_id=g.id) AS tagstr, "
+        "(SELECT c.name FROM game_categories gc JOIN categories c ON c.id=gc.category_id "
+        " WHERE gc.game_id=g.id AND c.is_group=1 LIMIT 1) AS group_name "
         "FROM games g LEFT JOIN statuses s ON s.id=g.status_id"
         + (" WHERE " + " AND ".join(where) if where else "")
         + f" ORDER BY {col} {direction.upper()}, "
@@ -310,14 +525,27 @@ def index():
         "SELECT t.name, COUNT(*) n FROM tags t JOIN game_tags gt ON gt.tag_id=t.id "
         "GROUP BY t.id ORDER BY t.name COLLATE NOCASE").fetchall()
     total = db.execute("SELECT COUNT(*) FROM games").fetchone()[0]
+    group_id = int(group) if group.isdigit() else None
+    groups, cat_tree, manual_cats = library_tree(group_id)
+    ungrouped = db.execute(
+        "SELECT COUNT(*) FROM games g WHERE NOT EXISTS (SELECT 1 FROM game_categories gc "
+        "JOIN categories c ON c.id=gc.category_id WHERE gc.game_id=g.id AND c.is_group=1)").fetchone()[0]
+    category_row = db.execute("SELECT * FROM categories WHERE id=?", (int(category),)).fetchone() \
+        if category.isdigit() else None
+    active_group = group
+    if not group and category_row is not None and category_row["path"]:
+        root = db.execute("SELECT id FROM categories WHERE path=?", (category_row["path"].split("/")[0],)).fetchone()
+        active_group = str(root["id"]) if root else ""
     status_counts = db.execute(
         "SELECT s.key, s.label, s.color, COUNT(g.id) n FROM statuses s "
         "LEFT JOIN games g ON g.status_id=s.id GROUP BY s.id ORDER BY s.sort, s.id").fetchall()
     return render_template(
         "index.html", games=games, q=q, platform=platform, tag=tag, status=status, sort=sort,
         direction=direction, platform_counts=platform_counts, tag_counts=tag_counts,
-        status_counts=status_counts,
-        total=total, untracked=len(untracked_folders()))
+        status_counts=status_counts, group=group, category=category, groups=groups,
+        cat_tree=cat_tree, manual_cats=manual_cats, ungrouped=ungrouped, category_row=category_row,
+        active_group=active_group,
+        total=total)
 
 
 @bp.get("/games/<int:gid>")
@@ -335,8 +563,11 @@ def game_detail(gid):
         except BadPath:
             d["exists"] = False
         versions.append(d)
+    group, cat = game_location(gid)
     return render_template("game.html", game=game, versions=versions, tags=game_tags(gid),
-                           status=status, statuses=all_statuses(), history=history)
+                           status=status, statuses=all_statuses(), history=history,
+                           group=group, cat_chain=category_chain(cat)[1:] if cat else [],
+                           manual_cats=manual_categories(gid))
 
 
 @bp.post("/games/<int:gid>/status")
@@ -378,6 +609,7 @@ def game_new():
                 (title, platform, form.get("description", "").strip(), cover, ts, ts,
                  status_from_form(form.get("status")), ts)).lastrowid
             set_tags(gid, parse_tags(form.get("tags")))
+            set_manual_categories(gid, parse_categories(form.get("categories")))
             if folder:
                 insert_version(gid, label, folder, form.get("notes", "").strip(), ts)
             db.commit()
@@ -385,10 +617,11 @@ def game_new():
             remove_cover(cover)
             flash(str(e), "error")
             return render_template("game_new.html", form=form, folders=untracked_folders(),
-                                   statuses=all_statuses()), 400
+                                   statuses=all_statuses(), destinations=group_folders()), 400
         flash(f"Added {title}.", "ok")
         return redirect(url_for("main.game_detail", gid=gid))
-    return render_template("game_new.html", form={}, folders=untracked_folders(), statuses=all_statuses())
+    return render_template("game_new.html", form={}, folders=untracked_folders(), statuses=all_statuses(),
+                           destinations=group_folders())
 
 
 @bp.route("/games/<int:gid>/edit", methods=["GET", "POST"])
@@ -406,7 +639,8 @@ def game_edit(gid):
             new_cover = cover_from_form()
         except UserError as e:
             flash(str(e), "error")
-            return render_template("game_edit.html", game=game, tags=parse_tags(f.get("tags"))), 400
+            return render_template("game_edit.html", game=game, tags=parse_tags(f.get("tags")),
+                                   categories=parse_categories(f.get("categories"))), 400
         cover = game["cover"]
         if new_cover or f.get("remove_cover"):
             remove_cover(cover)
@@ -415,10 +649,12 @@ def game_edit(gid):
         db.execute("UPDATE games SET title=?, platform=?, description=?, cover=?, updated_at=? WHERE id=?",
                    (title, platform, f.get("description", "").strip(), cover, now(), gid))
         set_tags(gid, parse_tags(f.get("tags")))
+        set_manual_categories(gid, parse_categories(f.get("categories")))
         db.commit()
         flash("Saved.", "ok")
         return redirect(url_for("main.game_detail", gid=gid))
-    return render_template("game_edit.html", game=game, tags=game_tags(gid))
+    return render_template("game_edit.html", game=game, tags=game_tags(gid),
+                           categories=[c["name"] for c in manual_categories(gid)])
 
 
 @bp.post("/games/<int:gid>/delete")
@@ -432,6 +668,8 @@ def game_delete(gid):
             removed += delete_folder(v["folder"])
     db.execute("DELETE FROM games WHERE id=?", (gid,))
     db.execute("DELETE FROM tags WHERE id NOT IN (SELECT tag_id FROM game_tags)")
+    prune_categories()
+    invalidate_layout()
     db.commit()
     remove_cover(game["cover"])
     msg = f"Removed {game['title']} from the library"
@@ -461,10 +699,12 @@ def version_new(gid):
             get_db().commit()
         except (UserError, BadPath) as e:
             flash(str(e), "error")
-            return render_template("version_new.html", game=game, form=f, folders=untracked_folders()), 400
+            return render_template("version_new.html", game=game, form=f, folders=untracked_folders(),
+                                   destinations=group_folders()), 400
         flash(f"Added version {label}.", "ok")
         return redirect(url_for("main.game_detail", gid=gid))
-    return render_template("version_new.html", game=game, form={}, folders=untracked_folders())
+    return render_template("version_new.html", game=game, form={"dest": default_destination(gid)},
+                           folders=untracked_folders(), destinations=group_folders())
 
 
 @bp.route("/versions/<int:vid>/edit", methods=["GET", "POST"])
@@ -485,6 +725,7 @@ def version_edit(vid):
         db.execute("UPDATE versions SET label=?, notes=?, added_at=? WHERE id=?",
                    (label, f.get("notes", "").strip(), added, vid))
         db.execute("UPDATE games SET updated_at=max(updated_at, ?) WHERE id=?", (added, game["id"]))
+        sync_folder_categories(game["id"])
         db.commit()
         flash("Version saved.", "ok")
         return redirect(url_for("main.game_detail", gid=game["id"]))
@@ -498,6 +739,8 @@ def version_delete(vid):
     deleted = delete_folder(v["folder"]) if request.form.get("delete_files") else False
     db = get_db()
     db.execute("DELETE FROM versions WHERE id=?", (vid,))
+    sync_folder_categories(v["game_id"])
+    invalidate_layout()
     db.commit()
     flash(f"Removed version {v['label']}" + (" and deleted its folder." if deleted else "."), "ok")
     return redirect(url_for("main.game_detail", gid=v["game_id"]))
@@ -610,7 +853,9 @@ def scan():
     existing = {r["title"].lower(): r for r in db.execute("SELECT id, title, platform FROM games")}
     if request.method == "POST":
         f = request.form
-        available = set(untracked_folders())
+        untracked = untracked_folders()
+        moved = {r["new"] for r in relink_suggestions(untracked)}
+        available = set(untracked) - moved   # moved folders are relinked, never imported as new
         groups = {}
         try:
             count = min(max(int(f.get("count", "0")), 0), 10000)
@@ -658,20 +903,107 @@ def scan():
         flash(f"Imported {added_versions} version(s), {added_games} new game(s).", "ok")
         return redirect(url_for("main.index"))
 
+    untracked, groups = share_layout(fresh=True)
+    rules = folder_rules()
+    relinks = relink_suggestions(untracked)
+    moved = {r["new"] for r in relinks}
     rows = []
-    for folder in untracked_folders():
+    for folder in untracked:
+        if folder in moved:
+            continue  # offered under "Moved folders" instead
         path = os.path.join(games_dir(), folder)
-        title, label = storage.parse_folder_name(folder)
+        title, label = storage.parse_folder_name(os.path.basename(folder))
         match = existing.get(title.lower())
         if not label:
-            label = datetime.fromtimestamp(os.stat(path).st_mtime).strftime("%Y-%m-%d")
+            label = datetime.fromtimestamp(os.stat(path).st_mtime, timezone.utc).strftime("%Y-%m-%d")
+        group, category = storage.location(folder)
         rows.append({
             "folder": folder, "title": match["title"] if match else title, "label": label,
             "platform": match["platform"] if match else storage.detect_platform(path),
-            "existing": bool(match),
+            "existing": bool(match), "group": group,
+            "category": category.split("/", 1)[1] if category else None,
+            "rule": rules.get(folder),
         })
     rows.sort(key=lambda r: (r["title"].lower(), storage.natural_key(r["label"])))
-    return render_template("scan.html", rows=rows)
+    return render_template("scan.html", rows=rows, relinks=relinks,
+                           group_rows=[{"path": p, "rule": rules.get(p)} for p in groups])
+
+
+def relink_suggestions(untracked):
+    """Tracked versions whose folder is gone, paired with an untracked folder
+    of the same name elsewhere on the share (it was probably moved)."""
+    by_name = defaultdict(list)
+    for p in untracked:
+        by_name[os.path.basename(p).lower()].append(p)
+    out = []
+    for v in get_db().execute("SELECT v.*, g.title FROM versions v JOIN games g ON g.id=v.game_id"):
+        try:
+            gone = not os.path.isdir(storage.resolve_in(games_dir(), v["folder"]))
+        except BadPath:
+            gone = True
+        if gone:
+            for new in by_name.get(os.path.basename(v["folder"]).lower(), []):
+                out.append({"vid": v["id"], "title": v["title"], "label": v["label"], "old": v["folder"], "new": new})
+    return out
+
+
+@bp.post("/scan/relink")
+def scan_relink():
+    v = get_version(int(request.form.get("vid", "0") or 0))
+    new = request.form.get("new", "")
+    if new not in untracked_folders():
+        abort(400, "That folder is not an untracked folder on the share.")
+    path = storage.resolve_no_links(games_dir(), new)
+    db = get_db()
+    db.execute("UPDATE versions SET folder=?, size_bytes=? WHERE id=?", (new, storage.folder_size(path), v["id"]))
+    sync_folder_categories(v["game_id"])
+    invalidate_layout()
+    db.commit()
+    flash(f"Relinked version {v['label']}: {v['folder']} → {new}.", "ok")
+    return redirect(url_for("main.scan"))
+
+
+@bp.post("/scan/rule")
+def scan_rule():
+    """Override automatic detection: 'game:<path>', 'group:<path>' or 'auto:<path>'."""
+    kind, _, path = request.form.get("rule", "").partition(":")
+    untracked, groups = share_layout(fresh=True)
+    if kind not in ("game", "group", "auto") or path not in set(untracked) | set(groups):
+        abort(400, "Unknown folder or rule.")
+    storage.resolve_no_links(games_dir(), path)
+    db = get_db()
+    if kind == "auto":
+        db.execute("DELETE FROM folder_rules WHERE path=?", (path,))
+    else:
+        db.execute("INSERT OR REPLACE INTO folder_rules(path, kind) VALUES (?, ?)", (path, kind))
+    db.commit()
+    invalidate_layout()
+    flash({"game": f"{path} is now treated as a game folder.",
+           "group": f"{path} is now treated as a group folder; its subfolders are scanned.",
+           "auto": f"{path} uses automatic detection again."}[kind], "ok")
+    return redirect(url_for("main.scan"))
+
+
+@bp.get("/groups/<int:cid>/icon")
+def group_icon(cid):
+    """folder.jpg / folder.png inside a group or category folder."""
+    row = get_db().execute("SELECT path FROM categories WHERE id=? AND path IS NOT NULL", (cid,)).fetchone()
+    p = group_icon_path(row["path"]) if row else None
+    if not p:
+        abort(404)
+    return send_file(p, max_age=3600)
+
+
+def group_icon_path(rel):
+    try:
+        base = storage.resolve_no_links(games_dir(), rel)
+    except BadPath:
+        return None
+    for name in ("folder.jpg", "folder.jpeg", "folder.png", "folder.webp"):
+        p = os.path.join(base, name)
+        if os.path.isfile(p) and not os.path.islink(p):
+            return p
+    return None
 
 
 # --------------------------------------------------------------- settings
@@ -785,8 +1117,8 @@ def register_filters(app):
     @app.context_processor
     def inject_untracked():
         from flask import session
-        if session.get("user") and request.endpoint not in ("static", "main.cover"):
-            return {"untracked": len(untracked_folders())}
+        if session.get("user") and request.endpoint not in ("static", "main.cover", "main.group_icon"):
+            return {"untracked": len(untracked_folders(fresh=False))}
         return {}
 
     @app.template_global()

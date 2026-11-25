@@ -77,6 +77,29 @@ MIGRATIONS = [
     );
     CREATE INDEX status_history_game ON status_history(game_id, at);
     """,
+    # v3 (1.2.0): subfolders as groups/categories, manual categories, folder rules
+    """
+    CREATE TABLE categories (
+        id        INTEGER PRIMARY KEY,
+        parent_id INTEGER REFERENCES categories(id) ON DELETE CASCADE,
+        name      TEXT NOT NULL,
+        is_group  INTEGER NOT NULL DEFAULT 0,
+        path      TEXT UNIQUE              -- share path for folder-derived ones, NULL for manual
+    );
+    CREATE INDEX categories_parent ON categories(parent_id);
+    CREATE TABLE game_categories (
+        game_id     INTEGER NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+        category_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+        source      TEXT NOT NULL DEFAULT 'user',   -- user | folder | plugin:<name>
+        PRIMARY KEY (game_id, category_id)
+    );
+    CREATE INDEX game_categories_cat ON game_categories(category_id);
+    CREATE TABLE folder_rules (
+        path TEXT PRIMARY KEY,
+        kind TEXT NOT NULL CHECK (kind IN ('game', 'group'))
+    );
+    ALTER TABLE game_tags ADD COLUMN source TEXT NOT NULL DEFAULT 'user';
+    """,
 ]
 SCHEMA_VERSION = len(MIGRATIONS)
 KEEP_MANUAL = 10   # manual backups kept

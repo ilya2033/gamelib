@@ -9,6 +9,12 @@
       {{ cover(game, 'big') }}
       <div class="hero-text">
         <a class="back" href="{{ url_for('main.index') }}">← Library</a>
+        {% if group %}
+        <div class="crumbs-loc">
+          <a class="loc" href="{{ url_for('main.index', group=group.id) }}">📁 {{ group.name }}</a>
+          {% for c in cat_chain %}<span class="sep" aria-hidden="true">›</span><a class="loc" href="{{ url_for('main.index', category=c.id) }}">{{ c.name }}</a>{% endfor %}
+        </div>
+        {% endif %}
         <h1>{{ game.title }}</h1>
         <div class="facts">
           <span class="plat p-{{ game.platform }}">{{ game.platform|platform }}</span>
@@ -17,7 +23,9 @@
           <span>Added {{ game.created_at|day }}</span>
           <span>Updated {{ game.updated_at|day }}</span>
         </div>
-        {% if tags %}<div class="tag-cloud">{% for t in tags %}<a class="chip" href="{{ url_for('main.index', tag=t) }}">#{{ t }}</a>{% endfor %}</div>{% endif %}
+        {% if tags or manual_cats %}<div class="tag-cloud">
+          {% for c in manual_cats %}<a class="chip" href="{{ url_for('main.index', category=c.id) }}">★ {{ c.name }}</a>{% endfor %}
+          {% for t in tags %}<a class="chip" href="{{ url_for('main.index', tag=t) }}">#{{ t }}</a>{% endfor %}</div>{% endif %}
         <form method="post" action="{{ url_for('main.game_status', gid=game.id) }}" class="status-form" data-autosubmit>
           {{ csrf() }}
           <label class="inline">Status

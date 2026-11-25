@@ -21,6 +21,8 @@
     {% if platform %}<input type="hidden" name="platform" value="{{ platform }}">{% endif %}
     {% if tag %}<input type="hidden" name="tag" value="{{ tag }}">{% endif %}
     {% if status %}<input type="hidden" name="status" value="{{ status }}">{% endif %}
+    {% if group %}<input type="hidden" name="group" value="{{ group }}">{% endif %}
+    {% if category %}<input type="hidden" name="category" value="{{ category }}">{% endif %}
     {% if sort and sort != 'name' %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
   </form>
   <nav class="actions">

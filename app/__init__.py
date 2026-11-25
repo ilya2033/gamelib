@@ -29,6 +29,8 @@ def create_app(config=None):
         MAX_UNCOMPRESSED_BYTES=int(float(env.get("MAX_UNCOMPRESSED_GB", "500")) * 1024**3),
         TRUSTED_ORIGINS=[o.strip() for o in env.get("TRUSTED_ORIGINS", "").split(",") if o.strip()],
         SESSION_COOKIE_SECURE=env.get("COOKIE_SECURE", "0") == "1",
+        SCAN_DEPTH=min(max(int(env.get("SCAN_DEPTH", "3") or 3), 1), 6),
+        LAYOUT_CACHE_SECONDS=60,
     )
     if config:
         app.config.update(config)

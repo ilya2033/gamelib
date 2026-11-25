@@ -5,8 +5,28 @@
 <main class="form-page wide">
   <a class="back" href="{{ url_for('main.index') }}">← Library</a>
   <h1>Scan games share</h1>
+
+  {% if relinks %}
+  <section class="panel relinks">
+    <h2>Moved folders</h2>
+    <p class="muted">These versions' folders are gone, but a folder with the same name is somewhere else on the share. Relink to keep the version's history, notes and status. Nothing is changed until you click.</p>
+    {% for r in relinks %}
+    <form method="post" action="{{ url_for('main.scan_relink') }}" class="relink-row">
+      {{ csrf() }}
+      <input type="hidden" name="vid" value="{{ r.vid }}">
+      <input type="hidden" name="new" value="{{ r.new }}">
+      <div><b>{{ r.title }}</b> {{ r.label|vlabel }}<br>
+        <span class="muted small">{{ r.old }}</span> → <span class="small">{{ r.new }}</span></div>
+      <button class="btn small">Relink</button>
+    </form>
+    {% endfor %}
+  </section>
+  {% endif %}
+
   {% if rows %}
-  <p class="muted">{{ rows|length }} folder(s) on the share are not in the library yet. Check the suggested title and version for each, untick what you don't want, then import. Folders with the same title become versions of one game. Each version's added date is taken from its folder's modified time.</p>
+  <p class="muted">{{ rows|length }} folder(s) on the share are not in the library yet. Check the suggested title and version for each, untick what you don't want, then import.
+    Folders with the same title become versions of one game. The first folder level is the <b>group</b> and deeper levels the <b>category</b>, both taken from the folder's location.
+    Each version's added date is its folder's modified time.</p>
   <form method="post">
     {{ csrf() }}
     <input type="hidden" name="count" value="{{ rows|length }}">
@@ -18,7 +38,14 @@
       <li class="scan-row">
         <label class="check pick"><input type="checkbox" name="include-{{ loop.index0 }}" value="1" checked data-pick aria-label="Import {{ r.folder }}"></label>
         <input type="hidden" name="folder-{{ loop.index0 }}" value="{{ r.folder }}">
-        <div class="scan-folder" title="{{ r.folder }}">📁 {{ r.folder }}{% if r.existing %} <span class="badge ok">existing game</span>{% endif %}</div>
+        <div class="scan-folder" title="{{ r.folder }}">
+          📁 {{ r.folder.rpartition('/')[2] }}{% if r.existing %} <span class="badge ok">existing game</span>{% endif %}
+          <div class="scan-loc muted small">
+            {% if r.group %}{{ r.group }}{% if r.category %} › {{ r.category|replace('/', ' › ') }}{% endif %}{% else %}top level (ungrouped){% endif %}
+            · <button class="linklike" formaction="{{ url_for('main.scan_rule') }}" name="rule" value="group:{{ r.folder }}" title="Treat this folder as a group and scan its subfolders">this is a group</button>
+            {% if r.rule %}· <button class="linklike" formaction="{{ url_for('main.scan_rule') }}" name="rule" value="auto:{{ r.folder }}">reset detection</button>{% endif %}
+          </div>
+        </div>
         <label class="f-title">Title<input name="title-{{ loop.index0 }}" value="{{ r.title }}" required></label>
         <label class="f-ver">Version<input name="label-{{ loop.index0 }}" value="{{ r.label }}" required></label>
         <label class="f-plat">Platform<select name="platform-{{ loop.index0 }}">{{ platform_options(r.platform) }}</select></label>
@@ -30,9 +57,29 @@
       <button class="btn primary">Import selected</button>
     </div>
   </form>
-  {% else %}
-  <div class="empty"><p>Every folder on the games share is already in the library.</p>
-    <p class="muted small">Scanned: top-level folders of <code>{{ config.GAMES_DIR }}</code></p></div>
+  {% elif not relinks %}
+  <div class="empty"><p>Every game folder on the games share is already in the library.</p>
+    <p class="muted small">Scanned: <code>{{ config.GAMES_DIR }}</code>, {{ config.SCAN_DEPTH }} folder levels deep.</p></div>
+  {% endif %}
+
+  {% if group_rows %}
+  <details class="panel group-rules" {{ 'open' if not rows }}>
+    <summary>Group folders ({{ group_rows|length }})</summary>
+    <p class="muted small">These folders hold other folders, so they are treated as groups (first level) or categories (deeper), and their subfolders are scanned.
+      If one of them is actually a game, mark it.</p>
+    <ul class="group-list">
+      {% for gr in group_rows %}
+      <li style="--d: {{ gr.path.count('/') }}">
+        <span class="group-path">📂 {{ gr.path.rpartition('/')[2] }}</span>
+        <form method="post" action="{{ url_for('main.scan_rule') }}">
+          {{ csrf() }}
+          {% if gr.rule %}<button class="btn small ghost" name="rule" value="auto:{{ gr.path }}">Reset detection</button>{% endif %}
+          <button class="btn small ghost" name="rule" value="game:{{ gr.path }}">This is a game</button>
+        </form>
+      </li>
+      {% endfor %}
+    </ul>
+  </details>
   {% endif %}
 </main>
 {% endblock %}

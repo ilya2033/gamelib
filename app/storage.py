@@ -116,6 +116,106 @@ def natural_key(s):
     return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", s)]
 
 
+# ------------------------------------------------- nested share layout
+
+SKIP_DIRS = {"@eaDir", "#recycle", "$RECYCLE.BIN", "System Volume Information", "lost+found"}
+IGNORED_FILES = {"folder.jpg", "folder.jpeg", "folder.png", "desktop.ini", "thumbs.db", ".ds_store"}
+
+
+def _skipped(name):
+    return name.startswith(".") or name in SKIP_DIRS
+
+
+def looks_like_version(path, name):
+    """A version folder has a version in its name or at least one real file
+    directly inside it. Anything else is a group/category folder."""
+    if parse_folder_name(name)[1]:
+        return True
+    try:
+        with os.scandir(path) as it:
+            for e in it:
+                if e.name.startswith(".") or e.name.lower() in IGNORED_FILES:
+                    continue
+                if e.is_file(follow_symlinks=False):
+                    return True
+    except OSError:
+        return True
+    return False
+
+
+def walk_share(games_dir, rules=None, depth=3, known_games=()):
+    """Yield (kind, relpath) for every folder on the share, kind being
+    'game' (a version folder) or 'group' (a folder that holds games).
+
+    - `rules` ({path: kind}) override the automatic detection.
+    - `known_games` (tracked version paths) are never probed or entered.
+    - Folders at level `depth` are always games, so nothing is hidden.
+    - Hidden folders, symlinks and NAS metadata folders are skipped.
+    Paths use '/' and are relative to the share."""
+    rules = rules or {}
+    known = set(known_games)
+
+    def rec(rel, level):
+        base = os.path.join(games_dir, rel) if rel else games_dir
+        try:
+            with os.scandir(base) as it:
+                entries = sorted((e for e in it if not _skipped(e.name)), key=lambda e: natural_key(e.name))
+        except OSError:
+            return
+        for e in entries:
+            try:
+                if not e.is_dir(follow_symlinks=False):
+                    continue
+            except OSError:
+                continue
+            p = f"{rel}/{e.name}" if rel else e.name
+            kind = rules.get(p)
+            if kind is None:
+                if p in known or level >= depth:
+                    kind = "game"
+                else:
+                    kind = "game" if looks_like_version(e.path, e.name) else "group"
+            yield kind, p
+            if kind == "group":
+                yield from rec(p, level + 1)
+
+    yield from rec("", 1)
+
+
+def location(path):
+    """'PC/Strategy/Game v1' -> ('PC', 'PC/Strategy'); 'PC/Game v1' -> ('PC', None);
+    'Game v1' -> (None, None)."""
+    parts = path.split("/")
+    group = parts[0] if len(parts) > 1 else None
+    category = "/".join(parts[:-1]) if len(parts) > 2 else None
+    return group, category
+
+
+def clean_subpath(text):
+    """User-typed 'New/Sub folder' -> safe relative path ('' if empty)."""
+    segs = [safe_folder_name(s) for s in re.split(r"[/\\]+", text or "") if s.strip(" .")]
+    return "/".join(segs)
+
+
+def make_dirs_in(base, rel):
+    """Create rel (and parents) inside base, refusing symlinked ancestors.
+    Returns the list of relative paths that were newly created."""
+    base_real = os.path.realpath(base)
+    created, cur = [], ""
+    for seg in rel.split("/") if rel else []:
+        cur = f"{cur}/{seg}" if cur else seg
+        full = os.path.join(base_real, cur)
+        if os.path.islink(full):
+            raise BadPath("Destination goes through a symlink")
+        if not os.path.isdir(full):
+            if os.path.lexists(full):
+                raise BadPath(f"{cur} exists and is not a folder")
+            os.mkdir(full)
+            created.append(cur)
+    resolve_no_links(base, rel) if rel else None
+    return created
+
+
 # ------------------------------------------------------- name parsing
 
 _VER_PREFIXED = re.compile(
@@ -254,10 +354,13 @@ def _write_entries(zf, entries, dest_real):
         _restore_mode(info, target)
 
 
-def install_upload(src, filename, games_dir, folder_name, max_bytes):
-    """Unpack (or copy) an uploaded file into a new folder on the share.
-    Works in a hidden staging folder, then renames it into place."""
-    name = unique_folder_name(games_dir, safe_folder_name(folder_name))
+def install_upload(src, filename, games_dir, folder_name, max_bytes, parent=""):
+    """Unpack (or copy) an uploaded file into a new folder on the share,
+    optionally inside the existing share subfolder `parent`. Works in a
+    hidden staging folder, then renames it into place. Returns the new
+    folder's share-relative path."""
+    parent_abs = resolve_no_links(games_dir, parent) if parent else os.path.realpath(games_dir)
+    name = unique_folder_name(parent_abs, safe_folder_name(folder_name))
     staging = os.path.join(games_dir, STAGING_PREFIX + uuid.uuid4().hex)
     os.makedirs(staging)
     try:
@@ -265,11 +368,11 @@ def install_upload(src, filename, games_dir, folder_name, max_bytes):
             safe_extract(src, staging, max_bytes)
         else:
             shutil.copyfile(src, os.path.join(staging, safe_folder_name(filename)))
-        os.rename(staging, os.path.join(games_dir, name))
+        os.rename(staging, os.path.join(parent_abs, name))
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
         raise
-    return name
+    return f"{parent}/{name}" if parent else name
 
 
 def cleanup_stale(tmp_dir, games_dir, max_age=86400):

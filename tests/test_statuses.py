@@ -45,9 +45,10 @@ def test_v1_database_migrates_to_statuses(dirs):
     row = con.execute("SELECT s.key, g.status_changed_at FROM games g JOIN statuses s ON s.id=g.status_id").fetchone()
     assert row == ("pending", "2024-01-01T00:00:00+00:00")
     backups = os.listdir(data / "backups")
-    assert any("-pre-v2" in b for b in backups)
+    tag = f"-pre-v{dbmod.SCHEMA_VERSION}"
+    assert any(tag in b for b in backups)
     # the backup is the untouched v1 database
-    b = sqlite3.connect(data / "backups" / [b for b in backups if "-pre-v2" in b][0])
+    b = sqlite3.connect(data / "backups" / [b for b in backups if tag in b][0])
     assert b.execute("PRAGMA user_version").fetchone()[0] == 1
 
 

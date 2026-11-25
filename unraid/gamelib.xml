@@ -71,4 +71,8 @@
   <Config Name="Max unpacked size (GB)" Target="MAX_UNCOMPRESSED_GB" Default="500" Mode=""
           Description="Uploaded zips that would unpack to more than this are rejected (zip-bomb guard)."
           Type="Variable" Display="advanced" Required="false" Mask="false">500</Config>
+
+  <Config Name="Scan depth" Target="SCAN_DEPTH" Default="3" Mode=""
+          Description="How many folder levels Scan looks into (1-6). 3 fits Group/Category/Game v1. Level 1 folders are groups, deeper ones categories."
+          Type="Variable" Display="advanced" Required="false" Mask="false">3</Config>
 </Container>

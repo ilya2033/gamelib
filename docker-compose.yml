@@ -19,6 +19,7 @@ services:
       UMASK: "002"
       TZ: Etc/UTC                  # set to your timezone, e.g. Europe/Berlin
       MAX_UNCOMPRESSED_GB: "500"
+      SCAN_DEPTH: "3"                # folder levels scanned: Group/Category/Game v1
       # TRUSTED_ORIGINS: games.example.com:8443   # reverse proxy that rewrites Host / non-standard port
       # COOKIE_SECURE: "1"                        # only when served over HTTPS
     volumes:

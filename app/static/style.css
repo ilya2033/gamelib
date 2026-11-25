@@ -298,3 +298,32 @@ dialog.confirm p { margin: 0; color: var(--muted); }
   .games.list .sub { justify-content: flex-start; }
   .flashes { top: auto; bottom: 16px; right: 16px; left: 16px; max-width: none; }
 }
+
+/* ---------- 1.2.0: groups, categories, scan rules */
+.group-tabs { display: flex; gap: 4px; overflow-x: auto; margin: -4px 0 14px; padding-bottom: 2px; border-bottom: 1px solid var(--line); scrollbar-width: thin; }
+.gtab { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; text-decoration: none; color: var(--muted); white-space: nowrap; border-bottom: 2px solid transparent; margin-bottom: -1px; font-weight: 600; }
+.gtab:hover { color: var(--text); }
+.gtab.active { color: var(--text); border-bottom-color: var(--accent); }
+.gtab img { width: 18px; height: 18px; border-radius: 4px; object-fit: cover; }
+.tree .side-link { padding-left: calc(10px + var(--d, 0) * 14px); }
+.tree .tree-group { font-weight: 650; padding-left: 10px; }
+.branch { width: 7px; height: 7px; border-left: 1px solid var(--muted); border-bottom: 1px solid var(--muted); flex: none; margin-top: -4px; opacity: .7; }
+.crumbs-loc { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 14px; }
+.crumbs-loc .loc { color: var(--muted); text-decoration: none; }
+.crumbs-loc .loc:hover { color: var(--text); text-decoration: underline; }
+.crumbs-loc .sep { color: var(--muted); }
+.scan-loc { margin-top: 2px; white-space: normal; }
+.linklike { background: none; border: 0; padding: 0; color: var(--accent); font: inherit; cursor: pointer; text-decoration: underline; }
+.relinks .relink-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); margin: 0; overflow-wrap: anywhere; }
+.group-rules { margin-top: 18px; }
+.group-rules > summary { cursor: pointer; font-weight: 650; }
+.group-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.group-list li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 0; }
+.group-list form { margin: 0; display: flex; gap: 6px; }
+.group-list li { padding-left: calc(var(--d, 0) * 18px); }
+.group-path { overflow-wrap: anywhere; }
+.dest { margin-top: 10px; }
+@media (max-width: 760px) {
+  .group-tabs { margin: 0 -12px 12px; padding: 0 12px; }
+  .relinks .relink-row, .group-list li { flex-direction: column; align-items: flex-start; }
+}

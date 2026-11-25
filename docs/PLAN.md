@@ -155,6 +155,11 @@ Deleting a custom status moves its games back to Pending.
 
 ## 4. Subfolders as groups and categories → 1.2.0 (schema v3)
 
+**Status: implemented in 1.2.0.** On top of the design below:
+- The folder layout is cached for 60 s and invalidated on writes, so browsing doesn't wake spun-down disks.
+- Folders created as upload destinations are recorded as groups.
+- An upload destination deeper than `SCAN_DEPTH` is refused, because Scan could never find the game there.
+
 ### Folder layout (decided: group + category)
 
 ```

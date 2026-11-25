@@ -4,9 +4,25 @@
 <div class="layout">
   <aside class="sidebar" id="filters">
     <details class="filter-box" open>
-      <summary>Filters{% if platform or tag or status %} <span class="badge">{{ (1 if platform else 0) + (1 if tag else 0) + (1 if status else 0) }}</span>{% endif %}</summary>
+      {% set nfilters = (1 if platform else 0) + (1 if tag else 0) + (1 if status else 0) + (1 if category else 0) %}
+      <summary>Filters{% if nfilters %} <span class="badge">{{ nfilters }}</span>{% endif %}</summary>
       <h4>Library</h4>
-      <a class="side-link {{ 'active' if not platform and not tag and not status }}" href="{{ url_with(platform=None, tag=None, status=None) }}">All games <span class="count">{{ total }}</span></a>
+      <a class="side-link {{ 'active' if not platform and not tag and not status and not category and not group }}" href="{{ url_with(platform=None, tag=None, status=None, category=None, group=None) }}">All games <span class="count">{{ total }}</span></a>
+      {% if cat_tree or manual_cats %}
+      <h4>Categories</h4>
+      <div class="tree">
+        {% for c in cat_tree %}
+          {% if c.heading %}
+          <a class="side-link tree-group {{ 'active' if group == c.id|string }}" href="{{ url_with(group=c.id, category=None) }}">{{ c.name }} <span class="count">{{ c.n }}</span></a>
+          {% else %}
+          <a class="side-link {{ 'active' if category == c.id|string }}" style="--d: {{ c.depth }}" href="{{ url_with(category=None if category == c.id|string else c.id) }}"><span class="branch" aria-hidden="true"></span>{{ c.name }} <span class="count">{{ c.n }}</span></a>
+          {% endif %}
+        {% endfor %}
+        {% for c in manual_cats %}
+          <a class="side-link {{ 'active' if category == c.id|string }}" href="{{ url_with(category=None if category == c.id|string else c.id) }}"><span aria-hidden="true">★</span>{{ c.name }} <span class="count">{{ c.n }}</span></a>
+        {% endfor %}
+      </div>
+      {% endif %}
       <h4>Status</h4>
       {% for s in status_counts %}
         <a class="side-link {{ 'active' if status == s.key }} {{ 'empty-count' if not s.n }}" href="{{ url_with(status=None if status == s.key else s.key) }}">
@@ -29,17 +45,28 @@
   </aside>
 
   <main class="content">
+    {% if groups %}
+    <nav class="group-tabs" aria-label="Groups">
+      <a class="gtab {{ 'active' if not active_group }}" href="{{ url_with(group=None, category=None) }}">All <span class="count">{{ total }}</span></a>
+      {% for gr in groups %}
+      <a class="gtab {{ 'active' if active_group == gr.id|string }}" href="{{ url_with(group=gr.id, category=None) }}">
+        {% if gr.has_icon %}<img src="{{ url_for('main.group_icon', cid=gr.id) }}" alt="">{% endif %}{{ gr.name }} <span class="count">{{ gr.n }}</span></a>
+      {% endfor %}
+      {% if ungrouped %}<a class="gtab {{ 'active' if active_group == 'none' }}" href="{{ url_with(group='none', category=None) }}">Ungrouped <span class="count">{{ ungrouped }}</span></a>{% endif %}
+    </nav>
+    {% endif %}
     <div class="toolbar">
       <div class="crumbs">
         <strong>{{ games|length }}</strong> {{ 'game' if games|length == 1 else 'games' }}
         {% if q %}<span class="chip">“{{ q }}” <a href="{{ url_with(q=None) }}" aria-label="Clear search">×</a></span>{% endif %}
         {% if platform %}<span class="chip">{{ platform|platform }} <a href="{{ url_with(platform=None) }}" aria-label="Clear platform">×</a></span>{% endif %}
         {% if tag %}<span class="chip">#{{ tag }} <a href="{{ url_with(tag=None) }}" aria-label="Clear tag">×</a></span>{% endif %}
+        {% if category_row %}<span class="chip">{{ category_row.name }} <a href="{{ url_with(category=None) }}" aria-label="Clear category">×</a></span>{% endif %}
         {% if status %}{% for s in status_counts if s.key == status %}<span class="chip"><span class="dot" style="--c: {{ s.color }}"></span>{{ s.label }} <a href="{{ url_with(status=None) }}" aria-label="Clear status">×</a></span>{% endfor %}{% endif %}
       </div>
       <div class="tools">
         <form method="get" class="sort" data-autosubmit>
-          {% for k in ('q', 'platform', 'tag', 'status') %}{% if request.args.get(k) %}<input type="hidden" name="{{ k }}" value="{{ request.args.get(k) }}">{% endif %}{% endfor %}
+          {% for k in ('q', 'platform', 'tag', 'status', 'group', 'category') %}{% if request.args.get(k) %}<input type="hidden" name="{{ k }}" value="{{ request.args.get(k) }}">{% endif %}{% endfor %}
           <select name="sort" aria-label="Sort by">
             <option value="name" {{ 'selected' if sort == 'name' }}>Name</option>
             <option value="added" {{ 'selected' if sort == 'added' }}>Added</option>
@@ -72,6 +99,7 @@
             <div class="extra">
               <span class="plat-text p-{{ g.platform }}">{{ g.platform|platform }}</span>
               {% if g.status_key %}<span class="status-text" style="--c: {{ g.status_color }}"><span class="dot"></span>{{ g.status_label }}</span>{% endif %}
+              {% if g.group_name %}<span>📁 {{ g.group_name }}</span>{% endif %}
               <span>{{ g.nversions }} version{{ '' if g.nversions == 1 else 's' }}</span>
               <span>updated {{ g.updated_at|day }}</span>
               {% if g.tags %}<span class="tags">{% for t in g.tags %}<i>#{{ t }}</i>{% endfor %}</span>{% endif %}

@@ -13,7 +13,7 @@
 {% macro csrf() %}<input type="hidden" name="csrf" value="{{ csrf_token() }}">{% endmacro %}
 
 {# Where a new version's files come from: upload into the share, an existing folder, or none #}
-{% macro source_picker(form, folders, allow_none=False) %}
+{% macro source_picker(form, folders, destinations=[], allow_none=False) %}
 {% set src = form.get('source', 'upload') %}
 <fieldset class="source" data-source>
   <legend>Files</legend>
@@ -34,7 +34,18 @@
       <div class="upload-status muted" aria-live="polite"></div>
       <button type="button" class="btn ghost small" data-cancel hidden>Cancel upload</button>
     </div>
-    <p class="hint">Unpacked into a new folder on the games share named “Title vVersion”. A single top-level folder inside the zip is flattened.</p>
+    <div class="grid2 dest">
+      <label>Destination on the share
+        <select name="dest">
+          <option value="">(top level)</option>
+          {% for d in destinations %}<option value="{{ d }}" {{ 'selected' if form.get('dest') == d }}>{{ d|replace('/', ' / ') }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>New subfolder
+        <input name="dest_new" maxlength="120" placeholder="optional, e.g. Strategy" value="{{ form.get('dest_new', '') }}">
+      </label>
+    </div>
+    <p class="hint">Unpacked into a new folder named “Title vVersion” inside the destination. A single top-level folder inside the zip is flattened. The first folder level is the game's <b>group</b>, deeper levels its <b>category</b>.</p>
   </div>
   <div class="pane" data-pane="folder">
     {% if folders %}

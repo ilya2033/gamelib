@@ -6,6 +6,7 @@ platforms, tags, version history, uploads straight into the share and zip
 downloads. One Flask app, SQLite, one container, no external services.
 
 - **Library:** cover grid or list, with search, platform and tag filters, and sorting by name, added or updated.
+- **Groups and categories:** subfolders on the share become groups (tabs) and categories (a sidebar tree), and you can add your own categories.
 - **Games:** title, platform (Windows, Linux, macOS, HTML, Unity WebGL, Other), description, tags and a cover/logo.
 - **Statuses:** Pending, On hold, Completed and Abandoned, plus any custom ones you add. Each game has one status, with a history of changes, and you can filter and sort by status. Manage them in **Settings → Statuses**.
 - **Versions:** one folder on the share per version, each with its own label, added date, notes and size. Old versions are kept.
@@ -18,22 +19,42 @@ downloads. One Flask app, SQLite, one container, no external services.
 ## How the games share is used
 
 ```
-/mnt/user/games/                 → mounted at /games
-├── Starfall Tactics v1.2/       ← version "1.2" of "Starfall Tactics"
-├── Starfall Tactics v1.3.1/     ← version "1.3.1" of the same game
-├── Pixel Racer (v0.9)/
-├── Moonlit Text RPG/            ← no version in the name → you type one in Scan
-└── .gamelib-staging-…/          ← hidden, used while unpacking an upload
+/mnt/user/games/                       → mounted at /games
+├── PC/                                ← level 1 = GROUP (a tab above the grid)
+│   ├── folder.jpg                     ← optional group icon
+│   ├── Strategy/                      ← deeper level = CATEGORY ("PC › Strategy")
+│   │   ├── Starfall Tactics v1.2/     ← version "1.2" of "Starfall Tactics"
+│   │   └── Starfall Tactics v1.3.1/   ← version "1.3.1" of the same game
+│   └── Cave Explorer v2.0/            ← group PC, no category
+├── Browser/
+│   └── RPG Maker/
+│       └── Moonlit Text RPG/          ← no version in the name → you type one in Scan
+├── Pixel Racer (v0.9)/                ← top level still works: "Ungrouped"
+└── .gamelib-staging-…/                ← hidden, used while unpacking an upload
 ```
 
-- **One folder per version, all at the top level.** Recognised name patterns: `Name v1.2`, `Name (v1.2)`, `Name [1.2]`, `Name_v1.2`, `Name-1.2.3` and `Name ver 1.2`.
-- **Scan:** groups folders with the same title into one game. A folder whose title matches an existing game becomes a new version of that game. The *added date* of a scanned version is its folder's modified time, and you can edit it.
-- **Upload:** creates `"<Title> v<Version>"` on the share.
+- **One folder per version.** Version folders can sit at the top level or inside group/category folders, up to `SCAN_DEPTH` levels deep (default 3).
+  - Recognised name patterns: `Name v1.2`, `Name (v1.2)`, `Name [1.2]`, `Name_v1.2`, `Name-1.2.3` and `Name ver 1.2`.
+- **Telling games from groups:** a folder is a **version folder** if its name has a version in it, or it directly contains at least one file. `folder.jpg`, `desktop.ini`, `Thumbs.db` and hidden files don't count.
+  - Any other folder is a **group** (first level) or **category** (deeper), and Scan looks inside it.
+  - If a folder is detected wrongly, use **this is a group** / **This is a game** on the Scan page. Your choice is remembered.
+  - Hidden folders, symlinks, `@eaDir` and `#recycle` are skipped.
+- **Groups and categories:**
+  - A game's group and category come from where its **latest** version lives, and they update when you add, move or delete versions.
+  - You can also give games your own **categories**, such as *Favourites* or *Couch co-op*, when adding or editing them.
+  - Both kinds show in the sidebar and can be filtered on.
+  - Filtering by a category includes everything below it.
+- **Scan:**
+  - Groups folders with the same title into one game. A folder whose title matches an existing game becomes a new version of that game.
+  - The *added date* of a scanned version is its folder's modified time, and you can edit it.
+  - If you move a version folder elsewhere on the share, Scan offers **Relink** under *Moved folders*, which keeps the version's history, notes and the game's status.
+- **Upload:** creates `"<Title> v<Version>"` in the **Destination** you pick: the top level, any existing group/category folder, plus an optional new subfolder. New versions default to the folder of the game's latest version.
   - If the zip has a single top-level folder, that folder is flattened.
   - `__MACOSX` and `.DS_Store` entries are skipped.
   - If the folder name already exists, a suffix is added, for example ` (2)`. Nothing is overwritten.
 - **Cover:** if you don't upload one, a `cover.*`, `folder.*`, `logo.*` or `poster.*` image (png, jpg, webp) at the top of the game folder is used automatically.
 - **Read-only:** apart from uploads and the optional "also delete files" on delete, the app never changes the share. To make it strictly track-only, mount `/games` read-only.
+- **Spun-down disks:** the folder layout is cached for 60 seconds, so browsing the library doesn't keep waking the array's disks. Scan always reads the share fresh.
 
 ## Install on Unraid
 
@@ -80,6 +101,7 @@ up template changes later.
 | Trusted origins | `TRUSTED_ORIGINS` | empty | Only for a reverse proxy on another hostname. *(advanced)* |
 | Secure cookie | `COOKIE_SECURE` | `0` | `1` only when served over HTTPS. *(advanced)* |
 | Max unpacked size | `MAX_UNCOMPRESSED_GB` | `500` | Zip-bomb guard. *(advanced)* |
+| Scan depth | `SCAN_DEPTH` | `3` | How many folder levels Scan looks into (1–6). `3` fits *Group / Category / Game v1*. *(advanced)* |
 
 4. Click **Apply**. Unraid pulls the image, and the container should turn *healthy* within about a minute.
 

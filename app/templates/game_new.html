@@ -15,11 +15,14 @@
       <label>Version<input name="version" maxlength="60" placeholder="e.g. 1.0.0" value="{{ form.get('version', '') }}" data-version-input><small data-version-hint>Required unless “None yet” is chosen</small></label>
       <label>Status<select name="status">{% for s in statuses %}<option value="{{ s.key }}" {{ 'selected' if form.get('status', 'pending') == s.key }}>{{ s.label }}</option>{% endfor %}</select></label>
     </div>
-    <label>Tags<input name="tags" placeholder="rpg, unity, finished" value="{{ form.get('tags', '') }}"><small>Comma separated</small></label>
+    <div class="grid2">
+      <label>Tags<input name="tags" placeholder="rpg, unity, finished" value="{{ form.get('tags', '') }}"><small>Comma separated</small></label>
+      <label>Categories<input name="categories" placeholder="Favourites, Couch co-op" value="{{ form.get('categories', '') }}"><small>Your own, comma separated. Folder groups/categories are added automatically.</small></label>
+    </div>
     <label>Description<textarea name="description" rows="4">{{ form.get('description', '') }}</textarea></label>
     <label>Logo / cover image<input type="file" name="cover" accept="image/png,image/jpeg,image/webp,image/gif">
       <small>Optional. If empty, a cover.png / folder.jpg / logo.png inside the game folder is used.</small></label>
-    {{ source_picker(form, folders, allow_none=True) }}
+    {{ source_picker(form, folders, destinations, allow_none=True) }}
     <label>Version notes<textarea name="notes" rows="2" placeholder="Optional">{{ form.get('notes', '') }}</textarea></label>
     <div class="row end">
       <a class="btn ghost" href="{{ url_for('main.index') }}">Cancel</a>
