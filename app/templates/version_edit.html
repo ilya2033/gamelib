@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% from "macros.html" import csrf %}
+{% block title %}Edit version · {{ game.title }}{% endblock %}
+{% block body %}
+<main class="form-page">
+  <a class="back" href="{{ url_for('main.game_detail', gid=game.id) }}">← {{ game.title }}</a>
+  <h1>Edit version</h1>
+  <p class="muted">📁 {{ v.folder }}</p>
+  <form method="post" class="stack">
+    {{ csrf() }}
+    <div class="grid2">
+      <label>Version<input name="version" required maxlength="60" value="{{ v.label }}"></label>
+      <label>Added<input type="date" name="added" value="{{ v.added_at|day }}"></label>
+    </div>
+    <label>Notes<textarea name="notes" rows="4">{{ v.notes }}</textarea></label>
+    <div class="row end">
+      <a class="btn ghost" href="{{ url_for('main.game_detail', gid=game.id) }}">Cancel</a>
+      <button class="btn primary">Save</button>
+    </div>
+  </form>
+</main>
+{% endblock %}

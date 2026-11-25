@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% from "macros.html" import csrf %}
+{% block title %}Statuses · Settings{% endblock %}
+{% block body %}
+<main class="form-page">
+  <a class="back" href="{{ url_for('main.index') }}">← Library</a>
+  <h1>Statuses</h1>
+  {% set pending_label = statuses|selectattr('key', 'equalto', 'pending')|map(attribute='label')|first %}
+  <p class="muted">Every game has one status. New and scanned games start as <b>{{ pending_label }}</b>. The four built-in statuses can be renamed and recoloured but not deleted. Lower order numbers are listed first.</p>
+
+  <form method="post" class="stack">
+    {{ csrf() }}
+    <input type="hidden" name="action" value="save">
+    <div class="status-table">
+      <div class="status-row status-head" aria-hidden="true"><span></span><span>Name</span><span>Colour</span><span class="s-sort">Order</span><span class="s-act"></span></div>
+      {% for s in statuses %}
+      <div class="status-row">
+        <span class="dot" style="--c: {{ s.color }}; width: 14px; height: 14px"></span>
+        <input name="label-{{ s.id }}" value="{{ s.label }}" maxlength="40" required aria-label="Name of {{ s.label }}">
+        <input type="color" name="color-{{ s.id }}" value="{{ s.color }}" aria-label="Colour of {{ s.label }}">
+        <input class="s-sort" type="number" name="sort-{{ s.id }}" value="{{ s.sort }}" min="0" max="9999" aria-label="Order of {{ s.label }}">
+        <span class="s-act">
+          {% if s.builtin %}<span class="builtin" title="Built-in statuses can't be deleted">built-in</span>
+          {% else %}<button type="button" class="btn small ghost danger-text" data-open="del-s{{ s.id }}">Delete</button>{% endif %}
+        </span>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="row end"><button class="btn primary">Save changes</button></div>
+  </form>
+
+  {% for s in statuses if not s.builtin %}
+  <dialog id="del-s{{ s.id }}" class="confirm">
+    <form method="post" action="{{ url_for('main.settings_status_delete', sid=s.id) }}">
+      {{ csrf() }}
+      <input type="hidden" name="confirm" value="yes">
+      <h3>Delete status {{ s.label }}?</h3>
+      <p>Games with this status are moved back to {{ pending_label }}. Their status history is kept.</p>
+      <div class="row end">
+        <button type="button" class="btn ghost" data-close>Cancel</button>
+        <button class="btn danger">Delete</button>
+      </div>
+    </form>
+  </dialog>
+  {% endfor %}
+
+  <h2 style="margin-top: 18px">Add a status</h2>
+  <form method="post" class="row">
+    {{ csrf() }}
+    <input type="hidden" name="action" value="add">
+    <input name="label" placeholder="e.g. Playing" maxlength="40" required style="flex: 1; min-width: 160px" aria-label="New status name">
+    <input type="color" name="color" value="#6aa6f8" style="width: 64px; height: 38px; padding: 2px" aria-label="New status colour">
+    <button class="btn">Add</button>
+  </form>
+</main>
+{% endblock %}

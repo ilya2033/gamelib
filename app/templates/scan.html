@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% from "macros.html" import platform_options, csrf %}
+{% block title %}Scan share{% endblock %}
+{% block body %}
+<main class="form-page wide">
+  <a class="back" href="{{ url_for('main.index') }}">← Library</a>
+  <h1>Scan games share</h1>
+  {% if rows %}
+  <p class="muted">{{ rows|length }} folder(s) on the share are not in the library yet. Check the suggested title and version for each, untick what you don't want, then import. Folders with the same title become versions of one game. Each version's added date is taken from its folder's modified time.</p>
+  <form method="post">
+    {{ csrf() }}
+    <input type="hidden" name="count" value="{{ rows|length }}">
+    <div class="scan-actions row">
+      <label class="check"><input type="checkbox" data-check-all checked> Select all</label>
+    </div>
+    <ul class="scan-list">
+      {% for r in rows %}
+      <li class="scan-row">
+        <label class="check pick"><input type="checkbox" name="include-{{ loop.index0 }}" value="1" checked data-pick aria-label="Import {{ r.folder }}"></label>
+        <input type="hidden" name="folder-{{ loop.index0 }}" value="{{ r.folder }}">
+        <div class="scan-folder" title="{{ r.folder }}">📁 {{ r.folder }}{% if r.existing %} <span class="badge ok">existing game</span>{% endif %}</div>
+        <label class="f-title">Title<input name="title-{{ loop.index0 }}" value="{{ r.title }}" required></label>
+        <label class="f-ver">Version<input name="label-{{ loop.index0 }}" value="{{ r.label }}" required></label>
+        <label class="f-plat">Platform<select name="platform-{{ loop.index0 }}">{{ platform_options(r.platform) }}</select></label>
+      </li>
+      {% endfor %}
+    </ul>
+    <div class="row end sticky-actions">
+      <a class="btn ghost" href="{{ url_for('main.index') }}">Cancel</a>
+      <button class="btn primary">Import selected</button>
+    </div>
+  </form>
+  {% else %}
+  <div class="empty"><p>Every folder on the games share is already in the library.</p>
+    <p class="muted small">Scanned: top-level folders of <code>{{ config.GAMES_DIR }}</code></p></div>
+  {% endif %}
+</main>
+{% endblock %}

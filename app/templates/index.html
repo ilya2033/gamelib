@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% from "macros.html" import cover %}
+{% block body %}
+<div class="layout">
+  <aside class="sidebar" id="filters">
+    <details class="filter-box" open>
+      <summary>Filters{% if platform or tag or status %} <span class="badge">{{ (1 if platform else 0) + (1 if tag else 0) + (1 if status else 0) }}</span>{% endif %}</summary>
+      <h4>Library</h4>
+      <a class="side-link {{ 'active' if not platform and not tag and not status }}" href="{{ url_with(platform=None, tag=None, status=None) }}">All games <span class="count">{{ total }}</span></a>
+      <h4>Status</h4>
+      {% for s in status_counts %}
+        <a class="side-link {{ 'active' if status == s.key }} {{ 'empty-count' if not s.n }}" href="{{ url_with(status=None if status == s.key else s.key) }}">
+          <span class="dot" style="--c: {{ s.color }}"></span>{{ s.label }} <span class="count">{{ s.n }}</span></a>
+      {% endfor %}
+      <h4>Platforms</h4>
+      {% for key, label in PLATFORMS.items() if platform_counts.get(key) %}
+        <a class="side-link {{ 'active' if platform == key }}" href="{{ url_with(platform=None if platform == key else key) }}">
+          <span class="dot p-{{ key }}"></span>{{ label }} <span class="count">{{ platform_counts[key] }}</span></a>
+      {% else %}<p class="muted small">No games yet</p>{% endfor %}
+      {% if tag_counts %}
+      <h4>Tags</h4>
+      <div class="tag-cloud">
+      {% for t in tag_counts %}
+        <a class="chip {{ 'active' if tag|lower == t.name|lower }}" href="{{ url_with(tag=None if tag|lower == t.name|lower else t.name) }}">{{ t.name }} <span class="count">{{ t.n }}</span></a>
+      {% endfor %}
+      </div>
+      {% endif %}
+    </details>
+  </aside>
+
+  <main class="content">
+    <div class="toolbar">
+      <div class="crumbs">
+        <strong>{{ games|length }}</strong> {{ 'game' if games|length == 1 else 'games' }}
+        {% if q %}<span class="chip">“{{ q }}” <a href="{{ url_with(q=None) }}" aria-label="Clear search">×</a></span>{% endif %}
+        {% if platform %}<span class="chip">{{ platform|platform }} <a href="{{ url_with(platform=None) }}" aria-label="Clear platform">×</a></span>{% endif %}
+        {% if tag %}<span class="chip">#{{ tag }} <a href="{{ url_with(tag=None) }}" aria-label="Clear tag">×</a></span>{% endif %}
+        {% if status %}{% for s in status_counts if s.key == status %}<span class="chip"><span class="dot" style="--c: {{ s.color }}"></span>{{ s.label }} <a href="{{ url_with(status=None) }}" aria-label="Clear status">×</a></span>{% endfor %}{% endif %}
+      </div>
+      <div class="tools">
+        <form method="get" class="sort" data-autosubmit>
+          {% for k in ('q', 'platform', 'tag', 'status') %}{% if request.args.get(k) %}<input type="hidden" name="{{ k }}" value="{{ request.args.get(k) }}">{% endif %}{% endfor %}
+          <select name="sort" aria-label="Sort by">
+            <option value="name" {{ 'selected' if sort == 'name' }}>Name</option>
+            <option value="added" {{ 'selected' if sort == 'added' }}>Added</option>
+            <option value="updated" {{ 'selected' if sort == 'updated' }}>Updated</option>
+            <option value="status" {{ 'selected' if sort == 'status' }}>Status</option>
+            <option value="status_changed" {{ 'selected' if sort == 'status_changed' }}>Status changed</option>
+          </select>
+          <button class="btn ghost icon" name="dir" value="{{ 'desc' if direction == 'asc' else 'asc' }}" title="Reverse order">{{ '↑' if direction == 'asc' else '↓' }}</button>
+        </form>
+        <div class="view-toggle" role="group" aria-label="View">
+          <button class="btn ghost icon" data-view="grid" title="Grid view">▦</button>
+          <button class="btn ghost icon" data-view="list" title="List view">☰</button>
+        </div>
+      </div>
+    </div>
+
+    {% if games %}
+    <ul class="games grid" data-games>
+      {% for g in games %}
+      <li class="card">
+        <a href="{{ url_for('main.game_detail', gid=g.id) }}">
+          <div class="art">{{ cover(g) }}<span class="plat p-{{ g.platform }}">{{ g.platform|platform }}</span>
+            {% if g.status_key %}<span class="status-pip" style="--c: {{ g.status_color }}" title="{{ g.status_label }}" aria-label="Status: {{ g.status_label }}"></span>{% endif %}</div>
+          <div class="meta">
+            <div class="title" title="{{ g.title }}">{{ g.title }}</div>
+            <div class="sub">
+              <span class="ver">{{ g.latest|vlabel if g.latest else 'no versions' }}</span>
+              <span class="date" title="Added {{ g.created_at|day }}">{{ g.created_at|day }}</span>
+            </div>
+            <div class="extra">
+              <span class="plat-text p-{{ g.platform }}">{{ g.platform|platform }}</span>
+              {% if g.status_key %}<span class="status-text" style="--c: {{ g.status_color }}"><span class="dot"></span>{{ g.status_label }}</span>{% endif %}
+              <span>{{ g.nversions }} version{{ '' if g.nversions == 1 else 's' }}</span>
+              <span>updated {{ g.updated_at|day }}</span>
+              {% if g.tags %}<span class="tags">{% for t in g.tags %}<i>#{{ t }}</i>{% endfor %}</span>{% endif %}
+            </div>
+          </div>
+        </a>
+      </li>
+      {% endfor %}
+    </ul>
+    {% elif total %}
+    <div class="empty"><p>No games match these filters.</p><a class="btn ghost" href="{{ url_for('main.index') }}">Clear filters</a></div>
+    {% else %}
+    <div class="empty">
+      <h2>Your library is empty</h2>
+      <p>Scan the games share to import existing folders, or add a game by hand.</p>
+      <div class="row center">
+        <a class="btn" href="{{ url_for('main.scan') }}">Scan share{% if untracked %} ({{ untracked }} folders){% endif %}</a>
+        <a class="btn primary" href="{{ url_for('main.game_new') }}">Add game</a>
+      </div>
+    </div>
+    {% endif %}
+  </main>
+</div>
+{% endblock %}

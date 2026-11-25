@@ -1,0 +1,67 @@
+{% macro cover(game, cls='') -%}
+  {%- if game.cover -%}
+    <img class="cover {{ cls }}" src="{{ url_for('main.cover', name=game.cover) }}" alt="" loading="lazy">
+  {%- else -%}
+    <div class="cover placeholder {{ cls }}" style="--h: {{ hue(game.title) }}" aria-hidden="true"><span>{{ initials(game.title) }}</span></div>
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro platform_options(selected) -%}
+  {% for key, label in PLATFORMS.items() %}<option value="{{ key }}" {{ 'selected' if key == selected }}>{{ label }}</option>{% endfor %}
+{%- endmacro %}
+
+{% macro csrf() %}<input type="hidden" name="csrf" value="{{ csrf_token() }}">{% endmacro %}
+
+{# Where a new version's files come from: upload into the share, an existing folder, or none #}
+{% macro source_picker(form, folders, allow_none=False) %}
+{% set src = form.get('source', 'upload') %}
+<fieldset class="source" data-source>
+  <legend>Files</legend>
+  <div class="seg">
+    <label><input type="radio" name="source" value="upload" {{ 'checked' if src == 'upload' }}> Upload</label>
+    <label><input type="radio" name="source" value="folder" {{ 'checked' if src == 'folder' }}> Folder on share</label>
+    {% if allow_none %}<label><input type="radio" name="source" value="none" {{ 'checked' if src == 'none' }}> None yet</label>{% endif %}
+  </div>
+  <div class="pane" data-pane="upload">
+    {% set uid = form.get('upload_id', '') %}
+    <div class="uploader" data-uploader>
+      <input type="hidden" name="upload_id" value="{{ uid if upload_exists(uid) }}">
+      <label class="drop">
+        <input type="file" accept=".zip,.html,.htm">
+        <span class="drop-text">{% if upload_exists(uid) %}Upload ready. Choose another file to replace it.{% else %}Choose a <b>.zip</b> or a single <b>.html</b> file{% endif %}</span>
+      </label>
+      <div class="progress" hidden><div class="bar"></div></div>
+      <div class="upload-status muted" aria-live="polite"></div>
+      <button type="button" class="btn ghost small" data-cancel hidden>Cancel upload</button>
+    </div>
+    <p class="hint">Unpacked into a new folder on the games share named “Title vVersion”. A single top-level folder inside the zip is flattened.</p>
+  </div>
+  <div class="pane" data-pane="folder">
+    {% if folders %}
+    <select name="folder" aria-label="Folder">
+      {% for f in folders %}<option value="{{ f }}" {{ 'selected' if form.get('folder') == f }}>{{ f }}</option>{% endfor %}
+    </select>
+    <p class="hint">Only folders not yet linked to any version are listed.</p>
+    {% else %}
+    <p class="muted">No untracked folders on the games share.</p>
+    {% endif %}
+  </div>
+  {% if allow_none %}<div class="pane" data-pane="none"><p class="muted">The game is added without files. Add versions later.</p></div>{% endif %}
+</fieldset>
+{% endmacro %}
+
+{% macro confirm_dialog(id, action, title, body, files_label) %}
+<dialog id="{{ id }}" class="confirm">
+  <form method="post" action="{{ action }}">
+    {{ csrf() }}
+    <input type="hidden" name="confirm" value="yes">
+    <h3>{{ title }}</h3>
+    <p>{{ body }}</p>
+    <label class="check danger-check"><input type="checkbox" name="delete_files" value="1"> {{ files_label }}</label>
+    <div class="row end">
+      <button type="button" class="btn ghost" data-close>Cancel</button>
+      <button class="btn danger">Delete</button>
+    </div>
+  </form>
+</dialog>
+{% endmacro %}

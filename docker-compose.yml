@@ -1,0 +1,26 @@
+# For Unraid's "Docker Compose Manager" plugin or plain `docker compose`.
+# The Unraid template in unraid/gamelib.xml is the alternative to this file.
+#
+# Build the image first with `sh ./scripts/build.sh` (tags gamelib:<version>
+# and gamelib:latest). This file only runs it, so it also works from the
+# Compose Manager's own project folder, which has no Dockerfile.
+services:
+  gamelib:
+    image: gamelib:latest          # or pin a version, e.g. gamelib:1.0.1
+    container_name: gamelib
+    restart: unless-stopped
+    ports:
+      - "8080:8080"                # host:container — change the left side only
+    environment:
+      GAMELIB_USER: admin
+      GAMELIB_PASSWORD: change-me  # required
+      PUID: "99"
+      PGID: "100"
+      UMASK: "002"
+      TZ: Europe/Kyiv              # set to your timezone
+      MAX_UNCOMPRESSED_GB: "500"
+      # TRUSTED_ORIGINS: games.example.com:8443   # reverse proxy that rewrites Host / non-standard port
+      # COOKIE_SECURE: "1"                        # only when served over HTTPS
+    volumes:
+      - /mnt/user/appdata/gamelib:/data    # database, covers, temp uploads, backups (required)
+      - /mnt/user/games:/games             # your games share (read-write for uploads)

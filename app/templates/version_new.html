@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% from "macros.html" import source_picker, csrf %}
+{% block title %}New version · {{ game.title }}{% endblock %}
+{% block body %}
+<main class="form-page">
+  <a class="back" href="{{ url_for('main.game_detail', gid=game.id) }}">← {{ game.title }}</a>
+  <h1>New version</h1>
+  <p class="muted">Older versions are kept. The newest added version becomes “latest”.</p>
+  <form method="post" class="stack" data-needs-upload>
+    {{ csrf() }}
+    <label>Version<input name="version" required maxlength="60" placeholder="e.g. 1.1.0" value="{{ form.get('version', '') }}" autofocus></label>
+    {{ source_picker(form, folders) }}
+    <label>Notes<textarea name="notes" rows="3" placeholder="What changed? (optional)">{{ form.get('notes', '') }}</textarea></label>
+    <div class="row end">
+      <a class="btn ghost" href="{{ url_for('main.game_detail', gid=game.id) }}">Cancel</a>
+      <button class="btn primary" type="submit">Add version</button>
+    </div>
+  </form>
+</main>
+{% endblock %}

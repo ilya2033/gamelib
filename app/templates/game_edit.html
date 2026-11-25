@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% from "macros.html" import platform_options, cover, csrf %}
+{% block title %}Edit · {{ game.title }}{% endblock %}
+{% block body %}
+<main class="form-page">
+  <a class="back" href="{{ url_for('main.game_detail', gid=game.id) }}">← {{ game.title }}</a>
+  <h1>Edit game</h1>
+  <form method="post" enctype="multipart/form-data" class="stack">
+    {{ csrf() }}
+    <div class="grid2">
+      <label>Title<input name="title" required maxlength="200" value="{{ request.form.get('title', game.title) }}"></label>
+      <label>Platform<select name="platform">{{ platform_options(request.form.get('platform', game.platform)) }}</select></label>
+    </div>
+    <label>Tags<input name="tags" value="{{ tags|join(', ') }}"><small>Comma separated</small></label>
+    <label>Description<textarea name="description" rows="6">{{ request.form.get('description', game.description) }}</textarea></label>
+    <div class="cover-edit">
+      {{ cover(game, 'thumb') }}
+      <div class="stack">
+        <label>Replace logo / cover<input type="file" name="cover" accept="image/png,image/jpeg,image/webp,image/gif"></label>
+        {% if game.cover %}<label class="check"><input type="checkbox" name="remove_cover" value="1"> Remove current cover</label>{% endif %}
+      </div>
+    </div>
+    <div class="row end">
+      <a class="btn ghost" href="{{ url_for('main.game_detail', gid=game.id) }}">Cancel</a>
+      <button class="btn primary">Save</button>
+    </div>
+  </form>
+</main>
+{% endblock %}

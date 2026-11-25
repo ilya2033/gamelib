@@ -1,0 +1,73 @@
+<?xml version="1.0"?>
+<!--
+  Unraid Docker template for GameLib.
+  Install: copy to /boot/config/plugins/dockerMan/templates-user/my-GameLib.xml,
+  then Docker tab > Add Container > Template: GameLib. See README.md.
+-->
+<Container version="2">
+  <Name>GameLib</Name>
+  <Repository>gamelib:latest</Repository>
+  <Registry/>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support/>
+  <Project/>
+  <Overview>Self-hosted game library. Tracks the game folders on your games share (one folder per version), with cover grid, tags, version history, uploads into the share and zip downloads. Single user, LAN.</Overview>
+  <Category>Tools: Other:</Category>
+  <WebUI>http://[IP]:[PORT:8080]/</WebUI>
+  <TemplateURL/>
+  <Icon/>
+  <ExtraParams/>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires>Build the image first on the Unraid server: ./scripts/build.sh (see README).</Requires>
+
+  <Config Name="WebUI port" Target="8080" Default="8080" Mode="tcp"
+          Description="Host port for the library UI. The container always listens on 8080; change only this value if 8080 is taken."
+          Type="Port" Display="always" Required="true" Mask="false">8080</Config>
+
+  <Config Name="App data" Target="/data" Default="/mnt/user/appdata/gamelib" Mode="rw"
+          Description="Database, cover images, temporary uploads and automatic DB backups. Keep it on the appdata share (cache) and include it in your appdata backups."
+          Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/gamelib</Config>
+
+  <Config Name="Games share" Target="/games" Default="/mnt/user/games" Mode="rw"
+          Description="Your games share. One folder per version, e.g. 'Hollow Knight v1.5.78'. Read-write is needed for uploads and 'delete files'. Use mode 'ro' to make it track-only."
+          Type="Path" Display="always" Required="true" Mask="false">/mnt/user/games</Config>
+
+  <Config Name="Username" Target="GAMELIB_USER" Default="admin" Mode=""
+          Description="Login username."
+          Type="Variable" Display="always" Required="true" Mask="false">admin</Config>
+
+  <Config Name="Password" Target="GAMELIB_PASSWORD" Default="" Mode=""
+          Description="Login password (required). The container will not start without it."
+          Type="Variable" Display="always" Required="true" Mask="true"></Config>
+
+  <Config Name="PUID" Target="PUID" Default="99" Mode=""
+          Description="User ID the app runs as. 99 = nobody (Unraid default)."
+          Type="Variable" Display="advanced" Required="true" Mask="false">99</Config>
+
+  <Config Name="PGID" Target="PGID" Default="100" Mode=""
+          Description="Group ID the app runs as. 100 = users (Unraid default)."
+          Type="Variable" Display="advanced" Required="true" Mask="false">100</Config>
+
+  <Config Name="UMASK" Target="UMASK" Default="002" Mode=""
+          Description="Permissions for files the app creates on the share. 002 = group-writable. Use 000 if SMB users can't modify uploaded games."
+          Type="Variable" Display="advanced" Required="false" Mask="false">002</Config>
+
+  <Config Name="Trusted origins" Target="TRUSTED_ORIGINS" Default="" Mode=""
+          Description="Only for a reverse proxy on a different hostname: comma-separated host[:port] values allowed to send write requests, e.g. games.example.com"
+          Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
+
+  <Config Name="Secure cookie" Target="COOKIE_SECURE" Default="0" Mode=""
+          Description="Set to 1 only when the UI is served over HTTPS (reverse proxy)."
+          Type="Variable" Display="advanced" Required="false" Mask="false">0</Config>
+
+  <Config Name="Max unpacked size (GB)" Target="MAX_UNCOMPRESSED_GB" Default="500" Mode=""
+          Description="Uploaded zips that would unpack to more than this are rejected (zip-bomb guard)."
+          Type="Variable" Display="advanced" Required="false" Mask="false">500</Config>
+</Container>

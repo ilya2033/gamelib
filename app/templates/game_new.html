@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% from "macros.html" import platform_options, source_picker, csrf %}
+{% block title %}Add game{% endblock %}
+{% block body %}
+<main class="form-page">
+  <a class="back" href="{{ url_for('main.index') }}">← Library</a>
+  <h1>Add game</h1>
+  <form method="post" enctype="multipart/form-data" class="stack" data-needs-upload>
+    {{ csrf() }}
+    <div class="grid2">
+      <label>Title<input name="title" required maxlength="200" value="{{ form.get('title', '') }}" autofocus></label>
+      <label>Platform<select name="platform">{{ platform_options(form.get('platform', 'windows')) }}</select></label>
+    </div>
+    <div class="grid2">
+      <label>Version<input name="version" maxlength="60" placeholder="e.g. 1.0.0" value="{{ form.get('version', '') }}" data-version-input><small data-version-hint>Required unless “None yet” is chosen</small></label>
+      <label>Status<select name="status">{% for s in statuses %}<option value="{{ s.key }}" {{ 'selected' if form.get('status', 'pending') == s.key }}>{{ s.label }}</option>{% endfor %}</select></label>
+    </div>
+    <label>Tags<input name="tags" placeholder="rpg, unity, finished" value="{{ form.get('tags', '') }}"><small>Comma separated</small></label>
+    <label>Description<textarea name="description" rows="4">{{ form.get('description', '') }}</textarea></label>
+    <label>Logo / cover image<input type="file" name="cover" accept="image/png,image/jpeg,image/webp,image/gif">
+      <small>Optional. If empty, a cover.png / folder.jpg / logo.png inside the game folder is used.</small></label>
+    {{ source_picker(form, folders, allow_none=True) }}
+    <label>Version notes<textarea name="notes" rows="2" placeholder="Optional">{{ form.get('notes', '') }}</textarea></label>
+    <div class="row end">
+      <a class="btn ghost" href="{{ url_for('main.index') }}">Cancel</a>
+      <button class="btn primary" type="submit">Add game</button>
+    </div>
+  </form>
+</main>
+{% endblock %}

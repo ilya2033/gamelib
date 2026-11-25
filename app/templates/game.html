@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% from "macros.html" import cover, confirm_dialog, csrf %}
+{% block title %}{{ game.title }}{% endblock %}
+{% block body %}
+<main class="detail">
+  <div class="hero" style="--h: {{ hue(game.title) }}">
+    {% if game.cover %}<div class="hero-bg" style="background-image:url('{{ url_for('main.cover', name=game.cover) }}')"></div>{% endif %}
+    <div class="hero-inner">
+      {{ cover(game, 'big') }}
+      <div class="hero-text">
+        <a class="back" href="{{ url_for('main.index') }}">← Library</a>
+        <h1>{{ game.title }}</h1>
+        <div class="facts">
+          <span class="plat p-{{ game.platform }}">{{ game.platform|platform }}</span>
+          {% if status %}<span class="status-chip" style="--c: {{ status.color }}"><span class="dot"></span>{{ status.label }}</span>{% endif %}
+          {% if versions %}<span>Latest <b>{{ versions[0].label|vlabel }}</b></span>{% endif %}
+          <span>Added {{ game.created_at|day }}</span>
+          <span>Updated {{ game.updated_at|day }}</span>
+        </div>
+        {% if tags %}<div class="tag-cloud">{% for t in tags %}<a class="chip" href="{{ url_for('main.index', tag=t) }}">#{{ t }}</a>{% endfor %}</div>{% endif %}
+        <form method="post" action="{{ url_for('main.game_status', gid=game.id) }}" class="status-form" data-autosubmit>
+          {{ csrf() }}
+          <label class="inline">Status
+            <select name="status" aria-label="Status">
+              {% for s in statuses %}<option value="{{ s.key }}" {{ 'selected' if status and s.id == status.id }}>{{ s.label }}</option>{% endfor %}
+            </select>
+          </label>
+          <noscript><button class="btn small">Set</button></noscript>
+        </form>
+        <div class="row">
+          {% if versions and versions[0].exists %}<a class="btn primary" href="{{ url_for('main.version_download', vid=versions[0].id) }}">⬇ Download latest</a>{% endif %}
+          <a class="btn" href="{{ url_for('main.version_new', gid=game.id) }}">＋ New version</a>
+          <a class="btn ghost" href="{{ url_for('main.game_edit', gid=game.id) }}">Edit</a>
+          <button class="btn ghost danger-text" data-open="del-game">Delete</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="detail-body">
+    {% if game.description %}<section class="panel"><h2>About</h2><div class="desc">{{ game.description }}</div></section>{% endif %}
+
+    {% if history %}
+    <section class="panel">
+      <h2>Status history</h2>
+      <ul class="history">
+        {% for h in history %}
+        <li><span class="h-date" title="{{ h.at }}">{{ h.at|when }}</span>
+          {% if h.from_label %}<span class="muted">{{ h.from_label }}</span> → {% endif %}<b>{{ h.to_label }}</b>
+          {% if h.source != 'user' %}<span class="muted small">({{ h.source }})</span>{% endif %}</li>
+        {% endfor %}
+      </ul>
+    </section>
+    {% endif %}
+
+    <section class="panel">
+      <h2>Versions <span class="count">{{ versions|length }}</span></h2>
+      {% if versions %}
+      <ul class="versions">
+        {% for v in versions %}
+        <li class="version {{ 'missing' if not v.exists }}">
+          <div class="v-head">
+            <span class="v-label">{{ v.label|vlabel }}</span>
+            {% if loop.first %}<span class="badge ok">latest</span>{% endif %}
+            {% if not v.exists %}<span class="badge warn" title="Folder not found on the games share">missing</span>{% endif %}
+            <span class="v-date">{{ v.added_at|day }}</span>
+          </div>
+          <div class="v-path" title="{{ v.folder }}">📁 {{ v.folder }} · {{ v.size_bytes|size }}</div>
+          {% if v.notes %}<div class="v-notes">{{ v.notes }}</div>{% endif %}
+          <div class="v-actions">
+            {% if v.exists %}<a class="btn small" href="{{ url_for('main.version_download', vid=v.id) }}">⬇ Download</a>{% endif %}
+            <a class="btn small ghost" href="{{ url_for('main.version_edit', vid=v.id) }}">Edit</a>
+            {% if v.exists %}
+            <form method="post" action="{{ url_for('main.version_refresh', vid=v.id) }}">{{ csrf() }}<button class="btn small ghost" title="Recalculate folder size">Refresh size</button></form>
+            {% endif %}
+            <button class="btn small ghost danger-text" data-open="del-v{{ v.id }}">Delete</button>
+          </div>
+          {{ confirm_dialog('del-v' ~ v.id, url_for('main.version_delete', vid=v.id),
+               'Delete version ' ~ v.label|vlabel ~ '?',
+               'The version is removed from the library. Its folder stays on the games share unless you tick the box below.',
+               'Also delete the folder “' ~ v.folder ~ '” from the share (cannot be undone)') }}
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="muted">No versions yet. <a href="{{ url_for('main.version_new', gid=game.id) }}">Add the first one</a>.</p>
+      {% endif %}
+    </section>
+  </div>
+  {{ confirm_dialog('del-game', url_for('main.game_delete', gid=game.id),
+       'Delete ' ~ game.title ~ '?',
+       ('The game and its ' ~ versions|length ~ (' version' if versions|length == 1 else ' versions') if versions else 'The game') ~ ' will be removed from the library. Folders stay on the games share unless you tick the box below.',
+       'Also delete all version folders from the share (cannot be undone)') }}
+</main>
+{% endblock %}

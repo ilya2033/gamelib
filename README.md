@@ -1,0 +1,232 @@
+# GameLib
+
+A small self-hosted game library for an Unraid server, in the style of a Lutris
+library: a cover grid of the games sitting on your **games share**, with
+platforms, tags, version history, uploads straight into the share and zip
+downloads. One Flask app, SQLite, one container, no external services.
+
+- **Library:** cover grid or list, with search, platform and tag filters, and sorting by name, added or updated.
+- **Games:** title, platform (Windows, Linux, macOS, HTML, Unity WebGL, Other), description, tags and a cover/logo.
+- **Statuses:** Pending, On hold, Completed and Abandoned, plus any custom ones you add. Each game has one status, with a history of changes, and you can filter and sort by status. Manage them in **Settings → Statuses**.
+- **Versions:** one folder on the share per version, each with its own label, added date, notes and size. Old versions are kept.
+- **Scan:** finds untracked folders on the share, suggests a title, version and platform for each, and imports only after you confirm.
+- **Upload:** a `.zip` or a single `.html` is streamed to disk with a progress bar, then unpacked into a new folder on the share. Multi-GB files work.
+- **Download:** any version as a zip, built while it streams (nothing is stored twice). A single-file version downloads as the file itself.
+- **Edit and delete:** edit details, replace the cover, delete a version or a game. Deleting asks for confirmation and keeps the files unless you tick "also delete files".
+- **Works on phone and desktop.**
+
+## How the games share is used
+
+```
+/mnt/user/games/                 → mounted at /games
+├── Starfall Tactics v1.2/       ← version "1.2" of "Starfall Tactics"
+├── Starfall Tactics v1.3.1/     ← version "1.3.1" of the same game
+├── Pixel Racer (v0.9)/
+├── Moonlit Text RPG/            ← no version in the name → you type one in Scan
+└── .gamelib-staging-…/          ← hidden, used while unpacking an upload
+```
+
+- **One folder per version, all at the top level.** Recognised name patterns: `Name v1.2`, `Name (v1.2)`, `Name [1.2]`, `Name_v1.2`, `Name-1.2.3` and `Name ver 1.2`.
+- **Scan:** groups folders with the same title into one game. A folder whose title matches an existing game becomes a new version of that game. The *added date* of a scanned version is its folder's modified time, and you can edit it.
+- **Upload:** creates `"<Title> v<Version>"` on the share.
+  - If the zip has a single top-level folder, that folder is flattened.
+  - `__MACOSX` and `.DS_Store` entries are skipped.
+  - If the folder name already exists, a suffix is added, for example ` (2)`. Nothing is overwritten.
+- **Cover:** if you don't upload one, a `cover.*`, `folder.*`, `logo.*` or `poster.*` image (png, jpg, webp) at the top of the game folder is used automatically.
+- **Read-only:** apart from uploads and the optional "also delete files" on delete, the app never changes the share. To make it strictly track-only, mount `/games` read-only.
+
+## Install on Unraid
+
+### 1. Get the project onto the server
+
+On your PC, copy this folder to the server, for example into `\\TOWER\appdata\gamelib-src`. Copying from Windows is fine: line endings are fixed during the build. Or clone it from the Unraid terminal, if git is available on your Unraid version:
+
+```bash
+git clone <your-repo-url> /mnt/user/appdata/gamelib-src
+```
+
+### 2. Build the image (Unraid terminal: *>_* icon in the top bar)
+
+```bash
+cd /mnt/user/appdata/gamelib-src && sh ./scripts/build.sh
+```
+
+This builds `gamelib:<version>`, for example `gamelib:1.0.1`, and also tags it `gamelib:latest`. The version comes from `app/version.py`.
+
+Always build on the Unraid box itself: an image built on a Mac (ARM) won't run on an x86 server. To build on another machine anyway, run the following, then `docker save gamelib:X | ssh root@tower docker load`:
+
+```bash
+docker buildx build --platform linux/amd64 -t gamelib:X --load .
+```
+
+### 3. Add the container template
+
+```bash
+cp /mnt/user/appdata/gamelib-src/unraid/gamelib.xml /boot/config/plugins/dockerMan/templates-user/my-GameLib.xml
+```
+
+### 4. Create the container
+
+1. Go to **Docker → Add Container**.
+2. In the **Template** drop-down, pick **GameLib** under "User templates".
+3. Fill in the settings:
+
+| Setting | Container side | Default (host side) | Notes |
+|---|---|---|---|
+| WebUI port | `8080/tcp` | `8080` | Change only the host port if 8080 is taken (e.g. `8095`). The WebUI link follows it. |
+| App data | `/data` | `/mnt/user/appdata/gamelib` | DB, covers, temp uploads, backups. |
+| Games share | `/games` | `/mnt/user/games` | Your games share. `rw` for uploads/deletes, `ro` for track-only. |
+| Username | `GAMELIB_USER` | `admin` | |
+| Password | `GAMELIB_PASSWORD` | — | **Required.** The container won't start without it. |
+| PUID / PGID | `PUID` / `PGID` | `99` / `100` | nobody:users. *(advanced)* |
+| UMASK | `UMASK` | `002` | Use `000` if SMB users can't edit uploaded games. *(advanced)* |
+| Trusted origins | `TRUSTED_ORIGINS` | empty | Only for a reverse proxy on another hostname. *(advanced)* |
+| Secure cookie | `COOKIE_SECURE` | `0` | `1` only when served over HTTPS. *(advanced)* |
+| Max unpacked size | `MAX_UNCOMPRESSED_GB` | `500` | Zip-bomb guard. *(advanced)* |
+
+4. Click **Apply**. Unraid first tries to pull `gamelib:latest` from Docker Hub. A "pull access denied" / "repository does not exist" message there is **expected and harmless** for a locally built image. The container is then created from the local image and should turn *healthy* within about a minute.
+
+   If **App data** isn't mapped, the container refuses to start rather than storing your library somewhere it would be lost.
+5. Open **WebUI**, log in, then click **Scan** to import what's already on the share.
+
+Before using a large upload, make sure **App data** has free space for the whole upload. The file lands in `/data/tmp` first, then gets unpacked onto the share.
+
+#### Alternative: Docker Compose Manager plugin
+
+`docker-compose.yml` has the same settings. Build the image first (step 2), edit the password, ports and paths, then *Compose Up*.
+
+### Reverse proxy (optional: SWAG, Nginx Proxy Manager)
+
+- **Uploads:** allow large bodies and long uploads. For nginx:
+  ```nginx
+  client_max_body_size 0;
+  proxy_request_buffering off;
+  proxy_read_timeout 3600s;
+  proxy_send_timeout 3600s;
+  ```
+- **Downloads:** set `proxy_buffering off;`, or keep `X-Accel-Buffering: no`, which the app already sends.
+- **Host header:** write requests are only accepted when the browser's `Origin` matches the `Host` the app receives. Set `TRUSTED_ORIGINS` to exactly what the browser's address bar shows, including any port (for example `games.example.com:8443`), in either of these cases:
+  - your proxy rewrites the Host header;
+  - you use a non-standard HTTPS port. nginx's `$host`, which SWAG and NPM use, drops the port.
+
+  Alternatively, forward the header with `proxy_set_header Host $http_host;`.
+- **HTTPS:** with HTTPS, set `COOKIE_SECURE=1`.
+
+## Updating
+
+GameLib images are versioned: `gamelib:1.0.0`, `gamelib:1.1.0` and so on, plus `latest`.
+
+1. **Read `CHANGELOG.md`** for new settings and breaking changes. Then get the new code:
+   ```bash
+   cd /mnt/user/appdata/gamelib-src && git pull
+   ```
+   Without git, copy the new files over the old ones instead.
+2. Build it: `sh ./scripts/build.sh`. This creates the new `gamelib:<version>` and moves `latest` to it. The old version's tag stays on the server.
+3. In the **Docker** tab, click the GameLib icon, choose **Edit**, then **Apply** without changing anything. Unraid recreates the container from `gamelib:latest`. Your data lives in the volumes, so nothing is lost.
+
+   Unraid's "check for updates" can't see locally built images, so it shows *not available*, and Apply shows a harmless pull error. Both are expected.
+
+   If you rolled back earlier, the Repository is still pinned to the old tag. Set it back to `gamelib:latest` first.
+4. On start, the app checks the database schema version (`PRAGMA user_version`).
+   - If a migration is needed, it **first copies the database to `/data/backups/gamelib-<date>-pre-v<N>.db`**, then migrates. Both steps are logged.
+   - The 5 newest pre-migration backups and the 10 newest manual backups are kept, each counted separately. Routine manual backups never remove a pre-migration backup.
+5. The footer of every page shows the running version.
+
+### Rolling back
+
+0. Check that a rollback point exists:
+   ```bash
+   ls /mnt/user/appdata/gamelib/backups/*pre-v*
+   ```
+   This is only needed if the update changed the schema.
+1. Edit the container and set **Repository** to the previous tag, for example `gamelib:1.0.0`. Click **Apply**.
+2. If the newer version migrated the database, the older image refuses to start and says the data is newer. In that case:
+   1. Stop the container.
+   2. Restore the `pre-v<N>` backup:
+      ```bash
+      cp /mnt/user/appdata/gamelib/backups/gamelib-<date>-pre-v<N>.db /mnt/user/appdata/gamelib/gamelib.db
+      ```
+   3. Start the container again.
+
+   Anything you changed after the upgrade is lost.
+
+When a fixed release is out, set **Repository** back to `gamelib:latest` so normal updates work again. Until then, `latest` still points at the newer image.
+
+List the versions you have with `docker image ls gamelib`. Remove old ones with `docker image rm gamelib:<old-version>`.
+
+### Releasing a new version (if you change the code)
+
+1. Bump `__version__` in `app/version.py`.
+2. If the schema changes, **append** a migration to `MIGRATIONS` in `app/db.py`. Never edit existing ones.
+3. Add a `CHANGELOG.md` entry, run the tests, then `sh ./scripts/build.sh`.
+
+## Backup
+
+**What to back up:** `/mnt/user/appdata/gamelib`. It holds the database, covers and the secret key. The games themselves are on your games share, which you back up separately.
+
+- **Recommended: Appdata Backup plugin** (Community Applications). It stops the container, copies `appdata/gamelib` and starts it again. Just include this folder.
+- **Manual backup while running.** Writes a consistent copy to `/data/backups/`:
+  ```bash
+  docker exec -u 99:100 GameLib python -m app.backup
+  ```
+  The container name is the one shown in the Docker tab, `GameLib` with the template or `gamelib` with compose. Keep `-u 99:100`, otherwise the file is owned by root.
+- **Manual backup while stopped:** stop the container, then copy the folder:
+  ```bash
+  cp -a /mnt/user/appdata/gamelib /mnt/user/backups/gamelib-$(date +%F)
+  ```
+- **Restore:**
+  1. Stop the container.
+  2. Put the folder, or just `gamelib.db`, back.
+  3. Start the container.
+  4. Version folders that no longer exist on the share show as **missing**. Folders that aren't in the restored DB show up in **Scan**.
+
+```
+/mnt/user/appdata/gamelib/
+├── gamelib.db        SQLite database
+├── secret_key        session signing key (keeps you logged in across restarts)
+├── covers/           cover images (WebP)
+├── backups/          pre-migration (5 kept) + manual (10 kept) DB backups
+└── tmp/              uploads in progress (stale ones are cleaned after 24 h, checked hourly)
+```
+
+## Security notes
+
+- **Login:** single user, password hashed in memory.
+  - Login is throttled to 5 failures per 5 minutes per IP. The limit holds even for parallel attempts. Behind a reverse proxy, all clients share the proxy's IP.
+  - The session cookie is `HttpOnly` and `SameSite=Lax`.
+  - The page sends anti-framing headers (`X-Frame-Options: DENY`, CSP `frame-ancestors 'none'`).
+- **Request bodies:** write requests must have a `Content-Length`, so chunked bodies are refused. The origin, size and login checks run before any request body is read.
+- Every write request needs a CSRF token **and** an `Origin` or `Referer` matching the app's own host and port. Cross-origin writes are rejected, including from other ports on the same server.
+- Zip uploads are checked before anything is extracted. The following are rejected:
+  - absolute paths, drive letters and `..` traversal
+  - symlinks
+  - archives that would unpack beyond `MAX_UNCOMPRESSED_GB`
+- Extraction happens in a hidden staging folder, which is removed on failure.
+- **Folder paths:** every folder path is resolved and must stay inside `/games`, and symlinks that point outside are refused. "Delete files" also refuses any path that goes through a symlink. The app only chowns `/data`, never your share.
+- **Unpacking:** execute bits stored in a zip made on Unix are kept, so Linux and macOS game binaries stay runnable. Known launchers (`.x86_64`, `.sh`, `.AppImage`…) are made executable even from Windows-made zips.
+- Meant for a home LAN. Put it behind a reverse proxy with HTTPS before exposing it to the internet.
+
+## Development
+
+```bash
+python3.12 -m venv .venv
+.venv/bin/pip install -r requirements-dev.txt
+.venv/bin/python -m pytest -q
+```
+
+Run locally:
+
+```bash
+DATA_DIR=./dev/data GAMES_DIR=./dev/games GAMELIB_PASSWORD=demo .venv/bin/gunicorn -c gunicorn.conf.py -b 127.0.0.1:8099 'app:create_app()'
+```
+
+## Troubleshooting
+
+- **Container stops right away:** check the logs. There are two likely causes:
+  - `GAMELIB_PASSWORD is not set` means you need to fill in Password.
+  - `/data is not mapped` means you need to set the App data path.
+- **`exec /app/entrypoint.sh: no such file or directory`:** the image was built with an older build that had Windows line endings. Rebuild with `sh ./scripts/build.sh`.
+- **"/games is not writable" in the logs:** the share isn't writable for 99:100. Run *Tools → New Permissions* on the share, set UMASK to `000`, or mount `/games` read-only if you only want tracking.
+- **Port already in use:** change the host side of *WebUI port* only.
+- **403 "Cross-origin request rejected" behind a proxy:** add the proxy hostname to `TRUSTED_ORIGINS`.
+- **Upload fails near the end:** `/data` ran out of space, or a reverse proxy limit was hit (see above).

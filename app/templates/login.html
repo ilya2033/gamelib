@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Log in{% endblock %}
+{% block body %}
+<main class="login">
+  <form method="post" class="stack card-box">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+    <div class="brand big"><img src="{{ url_for('static', filename='icon.svg') }}" alt="" width="40" height="40"> GameLib</div>
+    <label>Username<input name="username" autocomplete="username" required autofocus></label>
+    <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+    <button class="btn primary">Log in</button>
+  </form>
+</main>
+{% endblock %}
