@@ -14,7 +14,10 @@ from flask import (Blueprint, Response, abort, current_app, flash, jsonify,
                    send_from_directory, url_for)
 from PIL import Image, UnidentifiedImageError
 
-from . import storage
+import colorsys
+import io
+
+from . import artwork, storage
 from .db import get_db
 from .storage import PLATFORMS, BadPath, UnsafeZip
 from .version import __version__
@@ -303,11 +306,57 @@ def cover_from_form():
     return None
 
 
-def auto_cover(folder):
+def title_hue(text):
+    return sum(map(ord, text or "")) * 37 % 360
+
+
+def save_icon_cover(src, title):
+    """Render a small square icon centred on a 600x800 card coloured from the
+    title, instead of stretching it into a blurry crop."""
     try:
-        path = storage.find_cover_file(storage.resolve_in(games_dir(), folder))
-        return save_cover(path) if path else None
-    except (UserError, BadPath):
+        with Image.open(src) as img:
+            img.load()
+            icon = img.convert("RGBA")
+    except (UnidentifiedImageError, OSError, Image.DecompressionBombError, ValueError):
+        return None
+    h = title_hue(title) / 360
+    top = tuple(int(c * 255) for c in colorsys.hls_to_rgb(h, 0.30, 0.45))
+    bottom = tuple(int(c * 255) for c in colorsys.hls_to_rgb((h + 40 / 360) % 1, 0.13, 0.50))
+    W, H = 600, 800
+    card = Image.new("RGBA", (W, H))
+    for y in range(H):
+        t = y / (H - 1)
+        card.paste(tuple(int(top[i] + (bottom[i] - top[i]) * t) for i in range(3)) + (255,), (0, y, W, y + 1))
+    side = 360
+    scale = side / max(icon.size)
+    size = (max(1, round(icon.width * scale)), max(1, round(icon.height * scale)))
+    resample = Image.NEAREST if max(icon.size) <= 64 else Image.LANCZOS   # keep pixel art crisp
+    icon = icon.resize(size, resample)
+    shadow = Image.new("RGBA", card.size, (0, 0, 0, 0))
+    shadow.paste((0, 0, 0, 90), ((W - size[0]) // 2 + 6, 220 + 10, (W + size[0]) // 2 + 6, 220 + size[1] + 10),
+                 icon.getchannel("A"))
+    card = Image.alpha_composite(card, shadow)
+    card.alpha_composite(icon, ((W - size[0]) // 2, 220))
+    name = uuid.uuid4().hex + ".webp"
+    card.convert("RGB").save(os.path.join(cfg("COVERS_DIR"), name), "WEBP", quality=88)
+    return name
+
+
+def auto_cover(folder, title=""):
+    """Cover from the game folder: a cover image, an engine/HTML icon, or the
+    icon inside the game's .exe. None if nothing usable is found."""
+    try:
+        found = artwork.find_artwork(storage.resolve_in(games_dir(), folder), title)
+    except BadPath:
+        return None
+    if not found:
+        return None
+    kind, src = found
+    try:
+        if kind == "cover":
+            return save_cover(src)
+        return save_icon_cover(io.BytesIO(src) if kind == "exe" else src, title)
+    except UserError:
         return None
 
 
@@ -600,7 +649,7 @@ def game_new():
             cover = cover_from_form()
             folder = materialize_source(form, title, label)
             if folder and not cover:
-                cover = auto_cover(folder)
+                cover = auto_cover(folder, title)
             ts = now()
             db = get_db()
             gid = db.execute(
@@ -657,6 +706,24 @@ def game_edit(gid):
                            categories=[c["name"] for c in manual_categories(gid)])
 
 
+@bp.post("/games/<int:gid>/artwork")
+def game_artwork(gid):
+    """Look for artwork in the game's version folders (newest first) and use
+    the first one found as the cover, replacing the current one."""
+    game = get_game(gid)
+    db = get_db()
+    for v in db.execute("SELECT folder FROM versions WHERE game_id=? ORDER BY added_at DESC, id DESC", (gid,)):
+        cover = auto_cover(v["folder"], game["title"])
+        if cover:
+            remove_cover(game["cover"])
+            db.execute("UPDATE games SET cover=? WHERE id=?", (cover, gid))
+            db.commit()
+            flash("Found artwork in the game folder.", "ok")
+            return redirect(url_for("main.game_detail", gid=gid))
+    flash("No cover, icon or .exe icon found in this game's folders.", "error")
+    return redirect(url_for("main.game_edit", gid=gid))
+
+
 @bp.post("/games/<int:gid>/delete")
 def game_delete(gid):
     game = get_game(gid)
@@ -693,7 +760,7 @@ def version_new(gid):
             folder = materialize_source(f, game["title"], label)
             insert_version(gid, label, folder, f.get("notes", "").strip())
             if not game["cover"]:
-                cover = auto_cover(folder)
+                cover = auto_cover(folder, game["title"])
                 if cover:
                     get_db().execute("UPDATE games SET cover=? WHERE id=?", (cover, gid))
             get_db().commit()
@@ -895,7 +962,7 @@ def scan():
                 added_versions += 1
             if not db.execute("SELECT cover FROM games WHERE id=?", (gid,)).fetchone()["cover"]:
                 for _t, _l, folder, _p in reversed(rows):
-                    cover = auto_cover(folder)
+                    cover = auto_cover(folder, _t)
                     if cover:
                         db.execute("UPDATE games SET cover=? WHERE id=?", (cover, gid))
                         break
@@ -1126,9 +1193,7 @@ def register_filters(app):
         return bool(upload_id and UPLOAD_ID.match(upload_id)
                     and os.path.exists(upload_paths(upload_id)[0]))
 
-    @app.template_global()
-    def hue(text):
-        return sum(map(ord, text or "")) * 37 % 360
+    app.jinja_env.globals["hue"] = title_hue
 
     @app.template_global()
     def initials(text):

@@ -25,8 +25,9 @@ See §8.
 | **1.0.1** | Phase 0: fixes from the validation reports | v1 (no change) |
 | **1.1.0** | Statuses (pending / on hold / completed / abandoned) | v2 |
 | **1.2.0** | Subfolders as groups and categories, folder moves | v3 |
-| **1.3.0** | Plugin API: tokens, scopes, REST `/api/v1` | v4 |
-| **1.4.0** | Webhooks (outgoing events) | v5 |
+| **1.3.0** | Background workers and jobs (scan, import, sizes, uploads, deletes), scheduled folder rescans | v4 |
+| **1.4.0** | Plugin API: tokens, scopes, REST `/api/v1` | v5 |
+| **1.5.0** | Webhooks (outgoing events) | v6 |
 
 Small releases keep each database migration easy to roll back. Each one is a single `MIGRATIONS` entry, with an automatic backup before it runs. A failed release only costs you the one feature in it.
 
@@ -221,7 +222,140 @@ ALTER TABLE game_tags ADD COLUMN source TEXT NOT NULL DEFAULT 'user';
 
 Template and env: one new advanced variable, `SCAN_DEPTH` (default `3`).
 
-## 5. Plugin API → 1.3.0 (schema v4)
+## 5. Background workers and jobs → 1.3.0 (schema v4)
+
+**Why.** The share holds hundreds of GB across hundreds of small games. Right now, Scan, Import, measuring folder sizes, unpacking uploads and deleting folders all run inside the web request. A large share makes the page hang, and a reverse proxy can time out. Every slow share operation becomes a **job** run by **background workers**. A request only validates input, queues the job and returns immediately.
+
+### Workers
+
+- **In-process worker threads.** They run in the single gunicorn worker, so there's no extra container or external queue, in line with the "one container" requirement.
+- **Two lanes:**
+  - **`share` lane, 1 thread:** anything that reads or writes lots of share data. Running these one at a time keeps an Unraid array from thrashing across several disks.
+  - **`light` lane, 2 threads:** quick work, such as layout cache refreshes and syncing categories.
+- **A queue in SQLite** (the `jobs` table). Jobs survive a restart, and the UI can show history.
+- **Cancellable.** A job checks a cancel flag between folders, between files during unzip, and per directory while measuring.
+- **Restart recovery.** On start, jobs left `running` become `interrupted`:
+  - Safe kinds are re-queued: `discover`, `rescan` and `measure`.
+  - Unsafe kinds are marked failed, and their temp and staging files are cleaned up: `install` and `delete`.
+
+### Job kinds
+
+| Kind | Lane | Started by | What it does |
+|---|---|---|---|
+| `discover` | share | opening Scan, **Rescan now** | Walk the share, detect platforms, find moved folders. Saves the result so Scan renders it instantly. |
+| `import` | share | Scan → Import selected | Create games and versions, measure sizes, pick covers. Commits per game, so a cancel keeps finished games. |
+| `measure` | share | add version from folder, Relink, Refresh size | Folder size. The version shows "measuring…" until done. |
+| `install` | share | Add game / New version with Upload | Unzip into staging with byte progress, move into place, then create the game or version. The cover is saved in the request beforehand. |
+| `delete` | share | Delete with "also delete files" | The DB row is removed in the request. The folder is removed in the background. |
+| `rescan` | share | scheduler | See below. |
+| `layout` | light | stale cache | Refresh the cached share layout used for page badges and form pickers. Requests never walk the share. |
+
+### Scheduled folder rescans
+
+- **Schedule.** A scheduler thread queues `rescan` at `RESCAN_AT` (default `04:00` local time, so the disks are usually idle) and every `RESCAN_INTERVAL_HOURS` (default `24`, `0` = off). **Rescan now** is on the Scan page.
+- **Incremental.** A `scan_cache` table keeps each folder's `mtime`, kind, platform, size and when it was last seen. Unchanged folders are skipped, so with hundreds of games a rescan only touches what changed.
+- **What a rescan updates:**
+  - new untracked folders, for the Scan badge and list;
+  - tracked versions whose folder disappeared, marked **missing**;
+  - moved-folder suggestions, for Relink;
+  - sizes of folders whose `mtime` changed.
+- **Never imports or relinks by itself.** That stays a confirmed action, as agreed.
+
+  An optional `AUTO_IMPORT=1` could import only folders that match an existing game's title. ⚑ decide later.
+- **After a rescan,** Scan shows the result straight away, with "last scanned 3 h ago".
+
+### UI
+
+- **Jobs page** (`/jobs`): running and recent jobs with progress bar, current item, elapsed time, Cancel, and the error for failures.
+- **Top-bar indicator:** "⏳ 2" while jobs are running, linking to `/jobs`.
+- **Job pages poll** `GET /api/jobs/<id>` every second. Without JavaScript they refresh themselves every 2 s. When a job finishes, the page goes on to its result: the game page for an upload, the library for an import, the Scan results for a discovery.
+- **Live progress** for Scan and uploads. Unzipping shows bytes done of the total, and import shows "12 / 340 · measuring <folder>".
+
+### Better artwork lookup (icons from .exe files)
+
+Today a cover is only picked up from `cover.*`, `folder.*`, `logo.*` or `poster.*`. Most games have none, so the grid is mostly placeholders. The new lookup tries these sources in order, stopping at the first one found:
+1. **Explicit cover images:** `cover.*`, `folder.*`, `logo.*`, `poster.*`, as today.
+2. **Engine icons:**
+   - RPG Maker: `www/icon/icon.png`, `icon/icon.png`;
+   - Ren'Py: `game/gui/window_icon.png`;
+   - Unity WebGL: `TemplateData/favicon.ico`;
+   - generic: `icon.png` / `icon.ico`.
+3. **HTML games:** the `<link rel="icon">` from `index.html`, or `favicon.*`. Paths must stay inside the game folder.
+4. **Windows `.exe` icon.** A small built-in PE resource reader, with no new dependency:
+   - It reads the first `RT_GROUP_ICON` (the application icon), picks the largest and deepest image, and rebuilds it as `.ico`, or uses the embedded PNG as is.
+   - It reads only the needed bytes with seeks, so it's safe on huge executables.
+   - It picks the game's exe: names matching the game title win over the largest file. Helpers are skipped: `unins*`, `setup*`, `UnityCrashHandler*`, `vc_redist*`, `dxsetup` and so on.
+- **Covers from icons.** An icon is square and small, so it is centred on a 600×800 card coloured from the title. It isn't stretched into a blurry crop. Pixel-art icons up to 64 px are scaled up without smoothing.
+- **Where it runs:** on upload, on add from folder, on scan import, and through a new **Find artwork** button on the edit page for existing games. With the 1.3.0 workers it becomes a `light` job, and a **Find artwork for all games without one** bulk action.
+
+### Scan page: fixing detection without page reloads
+
+**Problem (seen in 1.2.0).** Every **this is a group** / **This is a game** click is a full form POST. The page reloads, the share is walked again, and the list comes back collapsed and scrolled to the top. If tens or hundreds of folders are misdetected, fixing them one reload at a time is unusable.
+
+**Fix:**
+- **In-place toggles.** The buttons call `POST /api/scan/rules` (JSON) instead of submitting the page. The response holds only the **changed part of the list**:
+  - the toggled row;
+  - for a new group, its subfolders as new rows;
+  - for a new game, the rows that were inside it, which are removed.
+
+  The page patches just that subtree. Scroll position, open panels, ticked boxes and edited titles and versions all stay as they were.
+- **Re-check only the affected folder.** The server re-classifies just the toggled folder's subtree, using `scan_cache`, as a `light` lane job. Other folders aren't re-read. The full discovery result is updated in place, so a later reload shows the same state.
+- **Bulk actions:**
+  - Tick several rows or group folders, then **Mark selected as game** / **Mark selected as group**. This is one request and one rule batch.
+  - **Everything inside this folder is a game**, for example `HTML/`. It stores one rule, `games-inside`, on the parent instead of hundreds of per-folder rules, and applies to folders added there later.
+  - **Undo** for the last rule batch.
+- **Layout for big lists:**
+  - The list is grouped by group/category in collapsible sections, which keep their open/closed state in the browser (`localStorage`).
+  - A filter box: "show only: misdetected suspects / new / existing games / by group".
+  - Counts per section.
+- **Suspects first.** The page highlights likely misdetections: a "group" whose children all look like single games, or a "game" that contains several version-like subfolders. **Fix all suspects** applies the suggested rule to all of them in one step, with a preview.
+- **Schema.** `folder_rules.kind` gains `'games-inside'`. A changed CHECK constraint can't be altered in place, so the table is recreated in the v4 migration.
+- **Tests:**
+  - a toggle returns only the affected rows;
+  - bulk marking of 200 folders is one request;
+  - `games-inside` also applies to new subfolders;
+  - Undo;
+  - no full share walk on a toggle.
+
+### Schema v4
+
+```sql
+CREATE TABLE jobs (
+  id TEXT PRIMARY KEY, kind TEXT NOT NULL, lane TEXT NOT NULL,
+  state TEXT NOT NULL,            -- queued | running | done | failed | cancelled | interrupted
+  params TEXT NOT NULL,           -- JSON
+  done INTEGER NOT NULL DEFAULT 0, total INTEGER NOT NULL DEFAULT 0, message TEXT,
+  result TEXT, error TEXT, cancel_requested INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL, started_at TEXT, finished_at TEXT);
+CREATE INDEX jobs_state ON jobs(state, lane, created_at);
+CREATE TABLE scan_cache (
+  path TEXT PRIMARY KEY, kind TEXT NOT NULL, mtime REAL NOT NULL,
+  platform TEXT, size_bytes INTEGER, last_seen TEXT NOT NULL);
+-- folder_rules recreated with kind IN ('game', 'group', 'games-inside')
+```
+
+Old finished jobs are pruned, keeping the last 200 or 30 days. `versions.size_bytes = -1` means "measuring".
+
+### Settings (template + compose, advanced)
+
+- **`RESCAN_AT`** (`04:00`) and **`RESCAN_INTERVAL_HOURS`** (`24`, `0` = off): the rescan schedule.
+- **`JOB_LIGHT_WORKERS`** (`2`): threads in the light lane. The share lane always has 1.
+
+### Already in the working tree (uncommitted, from the first attempt)
+
+- `app/jobs.py`: an in-memory job runner with progress, cancel and sync mode for tests. It becomes the base for the SQLite-backed queue.
+- `app/storage.py`: progress callbacks for unzip and cancel hooks for `folder_size`.
+
+### Tests
+
+- Every job kind in sync mode, plus real threads (start, poll, done).
+- Cancel mid-import and mid-unzip: finished games are kept, and staging is cleaned up.
+- Restart recovery from a `running` row.
+- Scheduler timing with a fake clock.
+- Incremental rescan: unchanged folders are not re-measured, and a changed `mtime` is.
+- A share with 500 generated folders: requests stay fast, and no request walks the share.
+
+## 5b. Plugin API → 1.4.0 (schema v5)
 
 The goal is that other services, such as an auto-tagger, a playtime tracker or a metadata fetcher, can read the library and assign **tags, categories and status** without touching the database.
 
@@ -292,7 +426,7 @@ Example response for one game:
 - **Server-side validation.** Tag and category names are limited to 40 characters and a safe character set. Statuses must exist, unless the token has `statuses:admin`.
 - **Payload limits.** Request bodies are capped at 1 MB, and each batch at 500 operations.
 
-### Schema v4
+### Schema v5
 
 ```sql
 CREATE TABLE api_tokens (
@@ -309,7 +443,7 @@ ALTER TABLE games ADD COLUMN status_source TEXT NOT NULL DEFAULT 'default';
 - **Example plugins.** `examples/plugins/autotag.py` is a stdlib-only script that tags games by detected platform and engine (Unity, RPG Maker, Ren'Py) and marks games with no versions as `pending`. A curl cookbook goes in the README.
 - **Optional Python client.** `gamelib_client.py` is a single file with no dependencies.
 
-## 6. Webhooks → 1.4.0 (schema v5)
+## 6. Webhooks → 1.5.0 (schema v6)
 
 - **Registering.** In **Settings → Webhooks** you register a URL, a secret, and the events to send.
 - **Events:** `game.created`, `game.deleted`, `version.added`, `version.deleted`, `status.changed`, `tags.changed`, `categories.changed`, `scan.completed`.
@@ -324,8 +458,8 @@ ALTER TABLE games ADD COLUMN status_source TEXT NOT NULL DEFAULT 'default';
 | all | full pytest suite; migration test from **every** previous schema version, with a backup created; container smoke test (healthy, runs as 99:100, `/data` owned 99:100) |
 | 1.1.0 | the status filter combined with others; status history; custom status delete → Pending |
 | 1.2.0 | nested scan; the depth limit; group/game classification and `folder_rules` override; relinking a moved folder; upload into a subfolder; path escape through nested `..` and symlinked group folders |
-| 1.3.0 | token hashing and one-time display; every scope denied without permission; cookie auth ignored on `/api/v1`; last-write-wins with correct source labels; Undo and "revert plugin" from the activity log; optional `412` check; batch is atomic; rate limit |
-| 1.4.0 | the signature is verifiable; retry and backoff; no redirects followed; a slow endpoint doesn't block requests |
+| 1.4.0 | token hashing and one-time display; every scope denied without permission; cookie auth ignored on `/api/v1`; last-write-wins with correct source labels; Undo and "revert plugin" from the activity log; optional `412` check; batch is atomic; rate limit |
+| 1.5.0 | the signature is verifiable; retry and backoff; no redirects followed; a slow endpoint doesn't block requests |
 
 ## 8. Decisions (2026-11-25)
 

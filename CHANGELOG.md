@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased (1.3.0 in progress)
+
+- **Artwork lookup:** games without a cover image now get artwork automatically from the game folder. Sources, in order:
+  - a cover image (`cover.*`, `folder.*`, `logo.*`, `poster.*`);
+  - an engine icon (RPG Maker, Ren'Py, Unity WebGL, `icon.*`);
+  - an HTML game's `<link rel="icon">` / `favicon.*`;
+  - the **application icon inside the game's `.exe`**, read by a built-in PE reader with no new dependency.
+
+  Installers, crash handlers and redistributables are skipped when picking the exe.
+- **Icon covers:** icons are rendered centred on a cover card in the game's colour, so they aren't stretched. Small pixel-art icons stay crisp.
+- **Find artwork:** a new button on the edit page looks again for an existing game.
+- **Groundwork for background jobs:** an in-process job runner, plus progress and cancel hooks for unzipping and size measuring. Not used yet; see `docs/PLAN.md` §5.
+
 ## 1.2.0 (2026-11-26)
 
 Subfolders become groups and categories. **Database schema v2 → v3.** The app backs up the database to `/data/backups/gamelib-…-pre-v3.db` before migrating. To roll back to 1.1.x, restore that file (see README, "Rolling back").

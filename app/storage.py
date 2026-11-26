@@ -99,9 +99,13 @@ def list_folders(games_dir):
     return sorted(out, key=natural_key)
 
 
-def folder_size(path):
+def folder_size(path, check=None):
+    """Total size of regular files under path. check() is called per
+    directory so a background job can be cancelled mid-walk."""
     total = 0
     for root, _dirs, files in os.walk(path):
+        if check:
+            check()
         for f in files:
             try:
                 st = os.lstat(os.path.join(root, f))
@@ -122,8 +126,12 @@ SKIP_DIRS = {"@eaDir", "#recycle", "$RECYCLE.BIN", "System Volume Information", 
 IGNORED_FILES = {"folder.jpg", "folder.jpeg", "folder.png", "desktop.ini", "thumbs.db", ".ds_store"}
 
 
-def _skipped(name):
+def skipped_name(name):
+    """Folders the scanner never looks at (hidden, NAS metadata)."""
     return name.startswith(".") or name in SKIP_DIRS
+
+
+_skipped = skipped_name
 
 
 def looks_like_version(path, name):
@@ -304,9 +312,11 @@ def _member_parts(info):
     return parts
 
 
-def safe_extract(zip_path, dest, max_bytes):
+def safe_extract(zip_path, dest, max_bytes, progress=None):
     """Validate every member first, then extract. Strips a single shared
-    top-level folder and ignores macOS metadata (__MACOSX, .DS_Store)."""
+    top-level folder and ignores macOS metadata (__MACOSX, .DS_Store).
+    progress(done_bytes, total_bytes) is called while writing; it may
+    raise to abort (the caller cleans up). Returns the unpacked size."""
     try:
         zf = zipfile.ZipFile(zip_path)
     except zipfile.BadZipFile as e:
@@ -330,7 +340,7 @@ def safe_extract(zip_path, dest, max_bytes):
 
         dest_real = os.path.realpath(dest)
         try:
-            _write_entries(zf, entries, dest_real)
+            return _write_entries(zf, entries, dest_real, total, progress)
         except UnsafeZip:
             raise
         except (zipfile.BadZipFile, zipfile.LargeZipFile, OSError, EOFError, ValueError,
@@ -340,7 +350,8 @@ def safe_extract(zip_path, dest, max_bytes):
             raise UnsafeZip(f"Could not unpack: {e.__class__.__name__}: {e}") from None
 
 
-def _write_entries(zf, entries, dest_real):
+def _write_entries(zf, entries, dest_real, total=0, progress=None):
+    done, last = 0, 0
     for info, parts in entries:
         target = os.path.realpath(os.path.join(dest_real, *parts))
         if not target.startswith(dest_real + os.sep):
@@ -350,11 +361,22 @@ def _write_entries(zf, entries, dest_real):
             continue
         os.makedirs(os.path.dirname(target), exist_ok=True)
         with zf.open(info) as src, open(target, "wb") as out:
-            shutil.copyfileobj(src, out, 1 << 20)
+            while True:
+                chunk = src.read(1 << 20)
+                if not chunk:
+                    break
+                out.write(chunk)
+                done += len(chunk)
+                if progress and done - last >= (32 << 20):
+                    last = done
+                    progress(done, total)
         _restore_mode(info, target)
+    if progress:
+        progress(done, total)
+    return done
 
 
-def install_upload(src, filename, games_dir, folder_name, max_bytes, parent=""):
+def install_upload(src, filename, games_dir, folder_name, max_bytes, parent="", progress=None):
     """Unpack (or copy) an uploaded file into a new folder on the share,
     optionally inside the existing share subfolder `parent`. Works in a
     hidden staging folder, then renames it into place. Returns the new
@@ -365,9 +387,12 @@ def install_upload(src, filename, games_dir, folder_name, max_bytes, parent=""):
     os.makedirs(staging)
     try:
         if filename.lower().endswith(".zip"):
-            safe_extract(src, staging, max_bytes)
+            safe_extract(src, staging, max_bytes, progress)
         else:
             shutil.copyfile(src, os.path.join(staging, safe_folder_name(filename)))
+            if progress:
+                size = os.path.getsize(src)
+                progress(size, size)
         os.rename(staging, os.path.join(parent_abs, name))
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)

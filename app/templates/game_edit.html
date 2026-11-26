@@ -21,6 +21,7 @@
       <div class="stack">
         <label>Replace logo / cover<input type="file" name="cover" accept="image/png,image/jpeg,image/webp,image/gif"></label>
         {% if game.cover %}<label class="check"><input type="checkbox" name="remove_cover" value="1"> Remove current cover</label>{% endif %}
+        <button class="btn small ghost" form="find-artwork" title="Cover image, engine icon, favicon or the icon inside the game's .exe">Find artwork in game folder</button>
       </div>
     </div>
     <div class="row end">
@@ -28,5 +29,6 @@
       <button class="btn primary">Save</button>
     </div>
   </form>
+  <form id="find-artwork" method="post" action="{{ url_for('main.game_artwork', gid=game.id) }}">{{ csrf() }}</form>
 </main>
 {% endblock %}
