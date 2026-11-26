@@ -282,7 +282,7 @@ def test_moved_folder_is_not_offered_or_imported_as_new(client, share):
     html = client.get("/scan").get_data(as_text=True)
     assert "Moved folders" in html
     assert 'name="new" value="Browser/Pixel Racer v0.9"' in html          # offered as a relink
-    assert not re.search(r'name="folder-\d+" value="Browser/Pixel Racer v0\.9"', html)  # not as an import row
+    assert 'name="include" value="Browser/Pixel Racer v0.9"' not in html  # not as an import row
     # a forged import of the moved folder is ignored
     scan_import(client, [("Browser/Pixel Racer v0.9", "Pixel Racer", "0.9")])
     assert q(client, "SELECT COUNT(*) FROM versions")[0][0] == 1

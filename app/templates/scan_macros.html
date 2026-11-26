@@ -1,0 +1,33 @@
+{# Scan rows. Fields are keyed by folder ("title:<folder>"), not numbered,
+   so rows can be removed and added in place without renumbering. #}
+{% from "macros.html" import platform_options %}
+
+{% macro scan_row(r) -%}
+<li class="scan-row {{ 'is-suspect' if r.suspect }}" data-path="{{ r.folder }}" data-search="{{ (r.title ~ ' ' ~ r.folder)|lower }}">
+  <label class="check pick"><input type="checkbox" name="include" value="{{ r.folder }}" checked data-pick aria-label="Import {{ r.folder }}"></label>
+  <div class="scan-folder" title="{{ r.folder }}">
+    📁 {{ r.folder.rpartition('/')[2] }}{% if r.existing %} <span class="badge ok">existing game</span>{% endif %}
+    {% if r.suspect %}<span class="badge warn" title="It holds several game-like subfolders">probably a group</span>{% endif %}
+    <div class="scan-loc muted small">
+      {% if r.group %}{{ r.group }}{% if r.category %} › {{ r.category|replace('/', ' › ') }}{% endif %}{% else %}top level (ungrouped){% endif %}
+      · <button class="linklike" formaction="{{ url_for('main.scan_rule') }}" name="rule" value="group:{{ r.folder }}" data-rule="group" data-path="{{ r.folder }}" title="Treat this folder as a group and scan its subfolders">this is a group</button>
+      {% if r.rule %}· <button class="linklike" formaction="{{ url_for('main.scan_rule') }}" name="rule" value="auto:{{ r.folder }}" data-rule="auto" data-path="{{ r.folder }}">reset detection</button>{% endif %}
+    </div>
+  </div>
+  <label class="f-title">Title<input name="title:{{ r.folder }}" value="{{ r.title }}" required></label>
+  <label class="f-ver">Version<input name="label:{{ r.folder }}" value="{{ r.label }}" required></label>
+  <label class="f-plat">Platform<select name="platform:{{ r.folder }}">{{ platform_options(r.platform) }}</select></label>
+</li>
+{%- endmacro %}
+
+{% macro group_row(g) -%}
+<li style="--d: {{ g.path.count('/') }}" data-path="{{ g.path }}">
+  <label class="check"><input type="checkbox" value="{{ g.path }}" data-group-pick aria-label="Select {{ g.path }}">
+    <span class="group-path">📂 {{ g.path.rpartition('/')[2] }}{% if g.rule == 'games-inside' %} <span class="badge ok">all inside are games</span>{% endif %}</span></label>
+  <span class="group-actions">
+    {% if g.rule %}<button class="btn small ghost" formaction="{{ url_for('main.scan_rule') }}" name="rule" value="auto:{{ g.path }}" data-rule="auto" data-path="{{ g.path }}">Reset detection</button>{% endif %}
+    <button class="btn small ghost" formaction="{{ url_for('main.scan_rule') }}" name="rule" value="games-inside:{{ g.path }}" data-rule="games-inside" data-path="{{ g.path }}" title="Every folder directly inside this one is a game, now and later">All inside are games</button>
+    <button class="btn small ghost" formaction="{{ url_for('main.scan_rule') }}" name="rule" value="game:{{ g.path }}" data-rule="game" data-path="{{ g.path }}">This is a game</button>
+  </span>
+</li>
+{%- endmacro %}

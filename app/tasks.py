@@ -16,6 +16,86 @@ def _fmt(n):
 
 # --------------------------------------------------------------- discovery
 
+def build_row(folder, existing, rules, cache, cache_rows, seen_at):
+    """One Scan row for an untracked version folder (platform cached by mtime)."""
+    path = os.path.join(v.games_dir(), folder)
+    try:
+        mtime = os.stat(path).st_mtime
+    except OSError:
+        return None
+    c = cache.get(folder)
+    if c is not None and c["mtime"] == mtime and c["platform"]:
+        platform = c["platform"]
+    else:
+        platform = storage.detect_platform(path)
+    cache_rows.append((folder, mtime, platform, c["size_bytes"] if c else None, seen_at))
+    title, label = storage.parse_folder_name(os.path.basename(folder))
+    match = existing.get(title.lower())
+    if not label:
+        label = datetime.fromtimestamp(mtime, timezone.utc).strftime("%Y-%m-%d")
+    group, category = storage.location(folder)
+    rule = rules.get(folder)
+    return {
+        "folder": folder, "title": match["title"] if match else title, "label": label,
+        "platform": match["platform"] if match else platform, "existing": bool(match),
+        "group": group, "category": category.split("/", 1)[1] if category else None,
+        "rule": rule,
+        # a "game" holding several game-like subfolders is probably a group
+        "suspect": "group" if rule is None and storage.nested_versions(path) >= 2 else None,
+    }
+
+
+def save_cache(db, cache_rows):
+    db.executemany("INSERT INTO scan_cache(path, mtime, platform, size_bytes, last_seen) VALUES (?,?,?,?,?) "
+                   "ON CONFLICT(path) DO UPDATE SET mtime=excluded.mtime, platform=excluded.platform, "
+                   "last_seen=excluded.last_seen", cache_rows)
+    db.commit()
+
+
+def _under(path, roots):
+    return any(path == r or path.startswith(r + "/") for r in roots)
+
+
+@handler("reclassify", lane="light", version=1)
+def run_reclassify(ctx):
+    """After a rule change: re-check only the changed folders' subtrees and
+    patch the saved Scan result in place (no full walk)."""
+    db = get_db()
+    roots = sorted(set(ctx.params["paths"]), key=len)
+    roots = [r for i, r in enumerate(roots) if not _under(r, roots[:i])]   # drop nested duplicates
+    base = jobs.latest(["discover", "rescan"])
+    result = (base or {}).get("result") or {"rows": [], "relinks": [], "group_rows": []}
+    rules = v.folder_rules()
+    tracked = v.tracked_folders()
+    existing = {r["title"].lower(): r for r in db.execute("SELECT id, title, platform FROM games")}
+    cache = {r["path"]: r for r in db.execute("SELECT * FROM scan_cache")}
+    moved = {r["new"] for r in result.get("relinks", [])}
+    removed = [r["folder"] for r in result["rows"] if _under(r["folder"], roots)] + \
+              [g["path"] for g in result["group_rows"] if _under(g["path"], roots)]
+    result["rows"] = [r for r in result["rows"] if not _under(r["folder"], roots)]
+    result["group_rows"] = [g for g in result["group_rows"] if not _under(g["path"], roots)]
+    new_rows, new_groups, cache_rows, seen_at = [], [], [], v.now()
+    for root in roots:
+        for kind, p in storage.walk_share(v.games_dir(), rules, v.cfg("SCAN_DEPTH"), tracked, start=root):
+            ctx.check_cancel()
+            if kind == "group":
+                new_groups.append({"path": p, "rule": rules.get(p)})
+            elif p not in tracked and p not in moved:
+                ctx.progress(len(new_rows), 0, f"Checking {p}")
+                row = build_row(p, existing, rules, cache, cache_rows, seen_at)
+                if row:
+                    new_rows.append(row)
+    save_cache(db, cache_rows)
+    result["rows"] = sorted(result["rows"] + new_rows,
+                            key=lambda r: (r["title"].lower(), storage.natural_key(r["label"])))
+    result["group_rows"] = sorted(result["group_rows"] + new_groups, key=lambda g: storage.natural_key(g["path"]))
+    if base:
+        con = db
+        con.execute("UPDATE jobs SET result=? WHERE id=?", (json.dumps(result), base["id"]))
+        con.commit()
+    v.invalidate_layout()
+    return {"removed": removed, "rows": new_rows, "group_rows": new_groups, "roots": roots}
+
 def discover(ctx, measure_changed=False):
     """Walk the share, detect platforms (cached by folder mtime), find moved
     folders. With measure_changed, also re-measure tracked versions whose
@@ -34,32 +114,10 @@ def discover(ctx, measure_changed=False):
     for i, folder in enumerate(todo):
         ctx.check_cancel()
         ctx.progress(i, len(todo), f"Checking {folder}")
-        path = os.path.join(v.games_dir(), folder)
-        try:
-            mtime = os.stat(path).st_mtime
-        except OSError:
-            continue
-        c = cache.get(folder)
-        if c is not None and c["mtime"] == mtime and c["platform"]:
-            platform = c["platform"]
-        else:
-            platform = storage.detect_platform(path)
-        cache_rows.append((folder, mtime, platform, c["size_bytes"] if c else None, seen_at))
-        title, label = storage.parse_folder_name(os.path.basename(folder))
-        match = existing.get(title.lower())
-        if not label:
-            label = datetime.fromtimestamp(mtime, timezone.utc).strftime("%Y-%m-%d")
-        group, category = storage.location(folder)
-        rows.append({
-            "folder": folder, "title": match["title"] if match else title, "label": label,
-            "platform": match["platform"] if match else platform, "existing": bool(match),
-            "group": group, "category": category.split("/", 1)[1] if category else None,
-            "rule": rules.get(folder),
-        })
-    db.executemany("INSERT INTO scan_cache(path, mtime, platform, size_bytes, last_seen) VALUES (?,?,?,?,?) "
-                   "ON CONFLICT(path) DO UPDATE SET mtime=excluded.mtime, platform=excluded.platform, "
-                   "last_seen=excluded.last_seen", cache_rows)
-    db.commit()                                   # one short write, after all the slow reading
+        row = build_row(folder, existing, rules, cache, cache_rows, seen_at)
+        if row:
+            rows.append(row)
+    save_cache(db, cache_rows)                    # one short write, after all the slow reading
     rows.sort(key=lambda r: (r["title"].lower(), storage.natural_key(r["label"])))
 
     measured = 0

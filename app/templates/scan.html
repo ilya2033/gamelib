@@ -1,8 +1,9 @@
 {% extends "base.html" %}
-{% from "macros.html" import platform_options, csrf, job_progress %}
+{% from "macros.html" import csrf, job_progress %}
+{% from "scan_macros.html" import scan_row, group_row %}
 {% block title %}Scan share{% endblock %}
 {% block body %}
-<main class="form-page wide">
+<main class="form-page wide" data-scan>
   <a class="back" href="{{ url_for('main.index') }}">← Library</a>
   <h1>Scan games share</h1>
   <div class="row scan-status">
@@ -15,10 +16,16 @@
   </div>
   {% if failed %}<div class="flash error" role="alert"><span>The last scan failed: {{ failed.error }}</span></div>{% endif %}
 
+  {# live status for in-place rule changes (filled by app.js) #}
+  <div class="rule-bar" data-rule-bar {{ 'hidden' if not can_undo }}>
+    <span data-rule-status class="muted small"></span>
+    <button type="button" class="btn small ghost" data-rule-undo {{ 'hidden' if not can_undo }}>Undo last change</button>
+  </div>
+
   {% if relinks %}
   <section class="panel relinks">
     <h2>Moved folders</h2>
-    <p class="muted">These versions' folders are gone, but a folder with the same name is somewhere else on the share. Relink to keep the version's history, notes and status. Nothing is changed until you click.</p>
+    <p class="muted">These versions' folders are gone, but a folder with the same name is somewhere else on the share. Relink to keep the version's history, notes and status.</p>
     {% for r in relinks %}
     <form method="post" action="{{ url_for('main.scan_relink') }}" class="relink-row">
       {{ csrf() }}
@@ -32,63 +39,53 @@
   </section>
   {% endif %}
 
-  {% if rows %}
-  <p class="muted">{{ rows|length }} folder(s) on the share are not in the library yet. Check the suggested title and version for each, untick what you don't want, then import.
-    Folders with the same title become versions of one game. The first folder level is the <b>group</b> and deeper levels the <b>category</b>, both taken from the folder's location.
-    Each version's added date is its folder's modified time.</p>
-  <form method="post">
+  <form method="post" action="{{ url_for('main.scan_import') }}" data-scan-form>
     {{ csrf() }}
-    <input type="hidden" name="count" value="{{ rows|length }}">
-    <div class="scan-actions row">
+    <div class="scan-tools row" {{ 'hidden' if not rows }}>
       <label class="check"><input type="checkbox" data-check-all checked> Select all</label>
+      <input type="search" class="scan-filter" placeholder="Filter by title or folder…" data-scan-filter aria-label="Filter rows">
+      <label class="check"><input type="checkbox" data-suspects-only> Suspects only</label>
+      {% if suspects %}
+      <button type="button" class="btn small" data-fix-suspects='{{ suspects|tojson }}' title="Mark every 'probably a group' folder as a group">Fix all suspects ({{ suspects|length }})</button>
+      {% endif %}
+      <span class="muted small" data-scan-count>{{ rows|length }} folder(s)</span>
     </div>
-    <ul class="scan-list">
-      {% for r in rows %}
-      <li class="scan-row">
-        <label class="check pick"><input type="checkbox" name="include-{{ loop.index0 }}" value="1" checked data-pick aria-label="Import {{ r.folder }}"></label>
-        <input type="hidden" name="folder-{{ loop.index0 }}" value="{{ r.folder }}">
-        <div class="scan-folder" title="{{ r.folder }}">
-          📁 {{ r.folder.rpartition('/')[2] }}{% if r.existing %} <span class="badge ok">existing game</span>{% endif %}
-          <div class="scan-loc muted small">
-            {% if r.group %}{{ r.group }}{% if r.category %} › {{ r.category|replace('/', ' › ') }}{% endif %}{% else %}top level (ungrouped){% endif %}
-            · <button class="linklike" formaction="{{ url_for('main.scan_rule') }}" name="rule" value="group:{{ r.folder }}" title="Treat this folder as a group and scan its subfolders">this is a group</button>
-            {% if r.rule %}· <button class="linklike" formaction="{{ url_for('main.scan_rule') }}" name="rule" value="auto:{{ r.folder }}">reset detection</button>{% endif %}
-          </div>
-        </div>
-        <label class="f-title">Title<input name="title-{{ loop.index0 }}" value="{{ r.title }}" required></label>
-        <label class="f-ver">Version<input name="label-{{ loop.index0 }}" value="{{ r.label }}" required></label>
-        <label class="f-plat">Platform<select name="platform-{{ loop.index0 }}">{{ platform_options(r.platform) }}</select></label>
-      </li>
-      {% endfor %}
-    </ul>
-    <div class="row end sticky-actions">
-      <a class="btn ghost" href="{{ url_for('main.index') }}">Cancel</a>
-      <button class="btn primary">Import selected</button>
-    </div>
-  </form>
-  {% elif not relinks and not running %}
-  <div class="empty"><p>Every game folder on the games share is already in the library.</p>
-    <p class="muted small">Scanned: <code>{{ config.GAMES_DIR }}</code>, {{ config.SCAN_DEPTH }} folder levels deep.</p></div>
-  {% endif %}
+    <p class="muted small" {{ 'hidden' if not rows }}>Folders with the same title become versions of one game. The first folder level is the <b>group</b>, deeper levels the <b>category</b>. Fixing detection updates this list in place; nothing is imported until you click Import.</p>
 
-  {% if group_rows %}
-  <details class="panel group-rules" {{ 'open' if not rows }}>
-    <summary>Group folders ({{ group_rows|length }})</summary>
-    <p class="muted small">These folders hold other folders, so they are treated as groups (first level) or categories (deeper), and their subfolders are scanned.
-      If one of them is actually a game, mark it.</p>
-    <ul class="group-list">
-      {% for gr in group_rows %}
-      <li style="--d: {{ gr.path.count('/') }}">
-        <span class="group-path">📂 {{ gr.path.rpartition('/')[2] }}</span>
-        <form method="post" action="{{ url_for('main.scan_rule') }}">
-          {{ csrf() }}
-          {% if gr.rule %}<button class="btn small ghost" name="rule" value="auto:{{ gr.path }}">Reset detection</button>{% endif %}
-          <button class="btn small ghost" name="rule" value="game:{{ gr.path }}">This is a game</button>
-        </form>
-      </li>
+    <div class="scan-sections" data-sections>
+      {% for name, srows in sections %}
+      <details class="scan-section" open data-section="{{ name }}">
+        <summary><b>{{ name or 'Top level' }}</b> <span class="count" data-section-count>{{ srows|length }}</span></summary>
+        <ul class="scan-list">{% for r in srows %}{{ scan_row(r) }}{% endfor %}</ul>
+      </details>
       {% endfor %}
-    </ul>
-  </details>
-  {% endif %}
+    </div>
+    <template data-section-template>
+      <details class="scan-section" open data-section=""><summary><b></b> <span class="count" data-section-count>0</span></summary><ul class="scan-list"></ul></details>
+    </template>
+
+    {% if not rows and not relinks and not running %}
+    <div class="empty" data-empty><p>Every game folder on the games share is already in the library.</p>
+      <p class="muted small">Scanned: <code>{{ config.GAMES_DIR }}</code>, {{ config.SCAN_DEPTH }} folder levels deep.</p></div>
+    {% endif %}
+
+    <div class="row end sticky-actions" {{ 'hidden' if not rows }} data-import-bar>
+      <a class="btn ghost" href="{{ url_for('main.index') }}">Cancel</a>
+      <button class="btn primary" formaction="{{ url_for('main.scan_import') }}">Import selected</button>
+    </div>
+
+    {% if group_rows %}
+    <details class="panel group-rules" data-group-panel>
+      <summary>Group folders (<span data-group-count>{{ group_rows|length }}</span>)</summary>
+      <p class="muted small">These folders hold other folders, so they are groups (first level) or categories (deeper), and their subfolders are scanned. Mark the ones that are really games.</p>
+      <div class="row">
+        <button type="button" class="btn small ghost" data-bulk-rule="game">Mark selected as games</button>
+        <button type="button" class="btn small ghost" data-bulk-rule="games-inside">Selected: all inside are games</button>
+        <button type="button" class="btn small ghost" data-bulk-rule="auto">Reset selected</button>
+      </div>
+      <ul class="group-list" data-group-list>{% for g in group_rows %}{{ group_row(g) }}{% endfor %}</ul>
+    </details>
+    {% endif %}
+  </form>
 </main>
 {% endblock %}

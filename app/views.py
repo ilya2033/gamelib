@@ -1051,7 +1051,13 @@ def scan():
                 "SELECT 1 FROM versions WHERE id=? AND folder=?", (r["vid"], r["old"])).fetchone():
             relinks.append(r)
     failed = jobs.latest(["discover", "rescan"], state="failed")
+    sections = defaultdict(list)
+    for r in rows:
+        sections[r["group"] or ""].append(r)
+    can_undo = bool(get_db().execute("SELECT 1 FROM folder_rule_history LIMIT 1").fetchone())
     return render_template("scan.html", rows=rows, relinks=relinks, group_rows=result.get("group_rows", []),
+                           sections=sorted(sections.items(), key=lambda kv: (kv[0] != "", storage.natural_key(kv[0]))),
+                           suspects=[r["folder"] for r in rows if r.get("suspect")], can_undo=can_undo,
                            running=running[0] if running else None, last=last,
                            failed=failed if failed and (not last or failed["finished_at"] > last["finished_at"]) else None)
 
@@ -1077,16 +1083,20 @@ def scan_import():
     except ValueError:
         abort(400, "Bad scan form.")
     rows, seen = [], set()
-    for i in range(count):
-        folder = f.get(f"folder-{i}", "")
-        if not f.get(f"include-{i}") or folder in seen:
-            continue
-        seen.add(folder)
-        title, label = f.get(f"title-{i}", "").strip(), f.get(f"label-{i}", "").strip()
-        platform = f.get(f"platform-{i}", "other")
-        if folder and title and label:
+
+    def add(folder, title, label, platform):
+        title, label = (title or "").strip(), (label or "").strip()
+        if folder and title and label and folder not in seen:
+            seen.add(folder)
             rows.append({"folder": folder, "title": title, "label": label,
                          "platform": platform if platform in PLATFORMS else "other"})
+    # rows are keyed by folder ("title:<folder>"), so the page can add and
+    # remove rows in place; the older numbered form is still accepted
+    for folder in f.getlist("include"):
+        add(folder, f.get(f"title:{folder}"), f.get(f"label:{folder}"), f.get(f"platform:{folder}", "other"))
+    for i in range(count):
+        if f.get(f"include-{i}"):
+            add(f.get(f"folder-{i}", ""), f.get(f"title-{i}"), f.get(f"label-{i}"), f.get(f"platform-{i}", "other"))
     if not rows:
         flash("Nothing selected to import.", "error")
         return redirect(url_for("main.scan"))
@@ -1143,19 +1153,107 @@ def scan_rule():
         abort(400, "Unknown folder.")
     if _in_tracked(path):
         abort(400, "That folder is a tracked version.")
-    db = get_db()
-    if kind == "auto":
-        db.execute("DELETE FROM folder_rules WHERE path=?", (path,))
-    else:
-        db.execute("INSERT OR REPLACE INTO folder_rules(path, kind) VALUES (?, ?)", (path, kind))
-    db.commit()
-    invalidate_layout()
-    jobs.enqueue("discover", {}, "Scan games share", exclusive=True)
+    apply_rules([(path, kind)])
+    jobs.enqueue("reclassify", {"paths": [path]}, "Re-check 1 folder")
     flash({"game": f"{path} is now treated as a game folder.",
            "group": f"{path} is now treated as a group folder; its subfolders are scanned.",
            "games-inside": f"Every folder inside {path} is now treated as a game.",
            "auto": f"{path} uses automatic detection again."}[kind], "ok")
     return redirect(url_for("main.scan"))
+
+
+# ----------------------------------------------------- scan rules (JSON)
+
+RULE_KINDS = ("game", "group", "games-inside", "auto")
+
+
+def apply_rules(changes):
+    """Save rule changes as one batch (for Undo). changes: [(path, kind)]."""
+    db = get_db()
+    batch = uuid.uuid4().hex[:12]
+    current = folder_rules()
+    for path, kind in changes:
+        new = None if kind == "auto" else kind
+        if current.get(path) == new:
+            continue
+        db.execute("INSERT INTO folder_rule_history(batch, path, old_kind, new_kind, at) VALUES (?,?,?,?,?)",
+                   (batch, path, current.get(path), new, now()))
+        if new is None:
+            db.execute("DELETE FROM folder_rules WHERE path=?", (path,))
+        else:
+            db.execute("INSERT OR REPLACE INTO folder_rules(path, kind) VALUES (?, ?)", (path, new))
+    db.commit()
+    invalidate_layout()
+    return batch
+
+
+def _validate_rule(path, kind):
+    if kind not in RULE_KINDS:
+        raise UserError(f"Unknown rule {kind!r}.")
+    _resolve_dir(path)
+    if _in_tracked(path):
+        raise UserError(f"{path} is a tracked version.")
+
+
+@bp.post("/api/scan/rules")
+def api_scan_rules():
+    """Body: {"rules": [{"path": "...", "kind": "game|group|games-inside|auto"}]}.
+    Saves the rules as one batch and re-checks just those folders in the
+    background. Poll the returned job, then fetch /scan/fragment/<job>."""
+    body = request.get_json(silent=True) or {}
+    rules = body.get("rules") or []
+    if not isinstance(rules, list) or not rules or len(rules) > 5000:
+        abort(400, "Send 1–5000 rules.")
+    changes = []
+    try:
+        for r in rules:
+            path, kind = str(r.get("path", "")), str(r.get("kind", ""))
+            _validate_rule(path, kind)
+            changes.append((path, kind))
+    except (UserError, AttributeError) as e:
+        abort(400, str(e))
+    batch = apply_rules(changes)
+    job_id = jobs.enqueue("reclassify", {"paths": [p for p, _ in changes]},
+                          f"Re-check {len(changes)} folder{'s' if len(changes) != 1 else ''}")
+    return jsonify(job=job_id, batch=batch)
+
+
+@bp.post("/api/scan/rules/undo")
+def api_scan_rules_undo():
+    db = get_db()
+    last = db.execute("SELECT batch FROM folder_rule_history ORDER BY id DESC LIMIT 1").fetchone()
+    if last is None:
+        abort(400, "Nothing to undo.")
+    rows = db.execute("SELECT path, old_kind FROM folder_rule_history WHERE batch=? ORDER BY id DESC",
+                      (last["batch"],)).fetchall()
+    for r in rows:
+        if r["old_kind"] is None:
+            db.execute("DELETE FROM folder_rules WHERE path=?", (r["path"],))
+        else:
+            db.execute("INSERT OR REPLACE INTO folder_rules(path, kind) VALUES (?, ?)", (r["path"], r["old_kind"]))
+    db.execute("DELETE FROM folder_rule_history WHERE batch=?", (last["batch"],))
+    db.commit()
+    invalidate_layout()
+    job_id = jobs.enqueue("reclassify", {"paths": [r["path"] for r in rows]}, "Undo folder rules")
+    return jsonify(job=job_id, undone=len(rows))
+
+
+@bp.get("/scan/fragment/<job_id>")
+def scan_fragment(job_id):
+    """Rendered rows for what a reclassify job changed, for in-place patching."""
+    j = jobs.get(job_id) or abort(404)
+    if j["kind"] != "reclassify" or j["state"] != "done":
+        abort(409, "That job hasn't finished.")
+    res = j["result"] or {}
+    tracked = tracked_folders()
+    rows = [r for r in res.get("rows", []) if r["folder"] not in tracked]
+    macros = current_app.jinja_env.get_template("scan_macros.html").module
+    return jsonify(
+        roots=res.get("roots", []),
+        removed=res.get("removed", []),
+        rows=[{"folder": r["folder"], "section": r["group"] or "", "html": str(macros.scan_row(r))} for r in rows],
+        group_rows=[{"path": g["path"], "html": str(macros.group_row(g))} for g in res.get("group_rows", [])],
+        can_undo=bool(get_db().execute("SELECT 1 FROM folder_rule_history LIMIT 1").fetchone()))
 
 
 # ------------------------------------------------------------------- jobs

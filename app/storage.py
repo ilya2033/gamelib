@@ -151,7 +151,7 @@ def looks_like_version(path, name):
     return False
 
 
-def walk_share(games_dir, rules=None, depth=3, known_games=()):
+def walk_share(games_dir, rules=None, depth=3, known_games=(), start=""):
     """Yield (kind, relpath) for every folder on the share, kind being
     'game' (a version folder) or 'group' (a folder that holds games).
 
@@ -159,9 +159,27 @@ def walk_share(games_dir, rules=None, depth=3, known_games=()):
     - `known_games` (tracked version paths) are never probed or entered.
     - Folders at level `depth` are always games, so nothing is hidden.
     - Hidden folders, symlinks and NAS metadata folders are skipped.
+    - `start` walks only that folder and what is below it (used to
+      re-check one subtree after a rule change).
     Paths use '/' and are relative to the share."""
     rules = rules or {}
     known = set(known_games)
+
+    def handle(p, full, name, level, children_are_games):
+        kind = rules.get(p)
+        inside = kind == "games-inside"
+        if inside:
+            kind = "group"
+        elif kind is None and children_are_games:
+            kind = "game"
+        if kind is None:
+            if p in known or level >= depth:
+                kind = "game"
+            else:
+                kind = "game" if looks_like_version(full, name) else "group"
+        yield kind, p
+        if kind == "group":
+            yield from rec(p, level + 1, inside)
 
     def rec(rel, level, children_are_games=False):
         base = os.path.join(games_dir, rel) if rel else games_dir
@@ -177,22 +195,33 @@ def walk_share(games_dir, rules=None, depth=3, known_games=()):
             except OSError:
                 continue
             p = f"{rel}/{e.name}" if rel else e.name
-            kind = rules.get(p)
-            inside = kind == "games-inside"
-            if inside:
-                kind = "group"
-            elif kind is None and children_are_games:
-                kind = "game"
-            if kind is None:
-                if p in known or level >= depth:
-                    kind = "game"
-                else:
-                    kind = "game" if looks_like_version(e.path, e.name) else "group"
-            yield kind, p
-            if kind == "group":
-                yield from rec(p, level + 1, inside)
+            yield from handle(p, e.path, e.name, level, children_are_games)
 
-    yield from rec("", 1)
+    if not start:
+        yield from rec("", 1)
+        return
+    parts = start.split("/")
+    full = os.path.join(games_dir, start)
+    if any(_skipped(x) for x in parts) or os.path.islink(full) or not os.path.isdir(full):
+        return
+    parent = start.rpartition("/")[0]
+    yield from handle(start, full, parts[-1], len(parts), bool(parent) and rules.get(parent) == "games-inside")
+
+
+def nested_versions(path):
+    """How many subfolders of a 'game' folder look like games themselves.
+    Two or more means it is probably a group (a scan 'suspect')."""
+    n = 0
+    try:
+        with os.scandir(path) as it:
+            for e in it:
+                if not _skipped(e.name) and e.is_dir(follow_symlinks=False) and looks_like_version(e.path, e.name):
+                    n += 1
+                    if n >= 2:
+                        break
+    except OSError:
+        pass
+    return n
 
 
 def location(path):

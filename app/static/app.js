@@ -57,18 +57,158 @@
     setTimeout(() => dismiss(f), f.classList.contains("error") ? 10000 : 4000);
   });
 
-  // ---- scan page: select all + dim unchecked rows
-  const all = document.querySelector("[data-check-all]");
-  const picks = [...document.querySelectorAll("[data-pick]")];
-  const dim = (p) => p.closest(".scan-row").classList.toggle("off", !p.checked);
-  const syncAll = () => {
-    if (!all) return;
-    const n = picks.filter((p) => p.checked).length;
-    all.checked = n === picks.length;
-    all.indeterminate = n > 0 && n < picks.length;
-  };
-  picks.forEach((p) => p.addEventListener("change", () => { dim(p); syncAll(); }));
-  all?.addEventListener("change", () => { picks.forEach((p) => { p.checked = all.checked; dim(p); }); syncAll(); });
+  // ---- scan page: select all, filters, sections, in-place rule changes
+  const scan = document.querySelector("[data-scan]");
+  if (scan) {
+    const all = scan.querySelector("[data-check-all]");
+    const filter = scan.querySelector("[data-scan-filter]");
+    const suspectsOnly = scan.querySelector("[data-suspects-only]");
+    const status = scan.querySelector("[data-rule-status]");
+    const bar = scan.querySelector("[data-rule-bar]");
+    const undoBtn = scan.querySelector("[data-rule-undo]");
+    const sectionsEl = scan.querySelector("[data-sections]");
+    const picks = () => [...scan.querySelectorAll("[data-pick]")];
+    const esc = (v) => (window.CSS && CSS.escape ? CSS.escape(v) : v.replace(/["\\]/g, "\\$&"));
+
+    const syncAll = () => {
+      const p = picks(), n = p.filter((x) => x.checked).length;
+      if (all) { all.checked = p.length > 0 && n === p.length; all.indeterminate = n > 0 && n < p.length; }
+    };
+    const recount = () => {
+      let visible = 0;
+      scan.querySelectorAll("[data-section]").forEach((sec) => {
+        const rows = [...sec.querySelectorAll(".scan-row")];
+        const shown = rows.filter((r) => !r.hidden).length;
+        visible += shown;
+        const c = sec.querySelector("[data-section-count]");
+        if (c) c.textContent = rows.length === shown ? rows.length : `${shown} / ${rows.length}`;
+        if (!rows.length) sec.remove();
+      });
+      const total = scan.querySelectorAll(".scan-row").length;
+      const c = scan.querySelector("[data-scan-count]");
+      if (c) c.textContent = visible === total ? `${total} folder(s)` : `${visible} of ${total} folder(s) shown`;
+      const gl = scan.querySelector("[data-group-list]"), gc = scan.querySelector("[data-group-count]");
+      if (gl && gc) gc.textContent = gl.children.length;
+      scan.querySelectorAll("[data-import-bar], .scan-tools").forEach((el) => { el.hidden = total === 0; });
+      syncAll();
+    };
+    const applyFilter = () => {
+      const q = (filter?.value || "").trim().toLowerCase();
+      const only = suspectsOnly?.checked;
+      scan.querySelectorAll(".scan-row").forEach((r) => {
+        r.hidden = (q && !r.dataset.search.includes(q)) || (only && !r.classList.contains("is-suspect"));
+      });
+      recount();
+    };
+    filter?.addEventListener("input", applyFilter);
+    suspectsOnly?.addEventListener("change", applyFilter);
+
+    scan.addEventListener("change", (e) => {
+      if (e.target.matches("[data-pick]")) { e.target.closest(".scan-row").classList.toggle("off", !e.target.checked); syncAll(); }
+    });
+    all?.addEventListener("change", () => {
+      picks().filter((p) => !p.closest(".scan-row").hidden).forEach((p) => {
+        p.checked = all.checked; p.closest(".scan-row").classList.toggle("off", !p.checked);
+      });
+      syncAll();
+    });
+
+    // remember which sections are collapsed
+    const KEY = "gamelib.scan.closed";
+    const closed = new Set(JSON.parse(store.get(KEY) || "[]"));
+    const wireSection = (sec) => {
+      if (closed.has(sec.dataset.section)) sec.open = false;
+      sec.addEventListener("toggle", () => {
+        sec.open ? closed.delete(sec.dataset.section) : closed.add(sec.dataset.section);
+        store.set(KEY, JSON.stringify([...closed]));
+      });
+    };
+    scan.querySelectorAll("[data-section]").forEach(wireSection);
+
+    const say = (text) => { if (status) status.textContent = text; if (bar) bar.hidden = false; };
+    const busy = (on) => scan.classList.toggle("rules-busy", on);
+
+    const waitJob = async (id) => {
+      for (;;) {
+        const r = await fetch(`/api/jobs/${id}`);
+        const j = await r.json();
+        if (!j.active) return j;
+        say(j.message ? `Re-checking… ${j.message}` : "Re-checking folders…");
+        await new Promise((res) => setTimeout(res, 400));
+      }
+    };
+
+    const patch = (frag) => {
+      const under = (p) => frag.roots.some((r) => p === r || p.startsWith(r + "/"));
+      scan.querySelectorAll(".scan-row[data-path], [data-group-list] > li[data-path]").forEach((el) => {
+        if (under(el.dataset.path)) el.remove();
+      });
+      const tpl = scan.querySelector("[data-section-template]");
+      for (const row of frag.rows) {
+        let sec = scan.querySelector(`[data-section="${esc(row.section)}"]`);
+        if (!sec && tpl) {
+          sec = tpl.content.firstElementChild.cloneNode(true);
+          sec.dataset.section = row.section;
+          sec.querySelector("b").textContent = row.section || "Top level";
+          sectionsEl.appendChild(sec);
+          wireSection(sec);
+        }
+        sec?.querySelector(".scan-list").insertAdjacentHTML("beforeend", row.html);
+      }
+      const gl = scan.querySelector("[data-group-list]");
+      if (gl) frag.group_rows.forEach((g) => gl.insertAdjacentHTML("beforeend", g.html));
+      if (undoBtn) undoBtn.hidden = !frag.can_undo;
+      scan.querySelector("[data-empty]")?.remove();
+      applyFilter();
+    };
+
+    const run = async (url, payload) => {
+      busy(true);
+      say("Saving…");
+      try {
+        const r = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
+          body: payload ? JSON.stringify(payload) : "{}",
+        });
+        const res = await r.json();
+        if (!r.ok) throw new Error(res.error || `HTTP ${r.status}`);
+        const j = await waitJob(res.job);
+        if (j.state !== "done") throw new Error(j.error || `Re-check ${j.state}`);
+        const fr = await fetch(`/scan/fragment/${res.job}`);
+        const frag = await fr.json();
+        patch(frag);
+        say(`Updated ${frag.roots.length} folder(s): ${frag.rows.length} game row(s), ${frag.group_rows.length} group folder(s).`);
+      } catch (err) {
+        say(`Couldn't apply that: ${err.message}`);
+      } finally {
+        busy(false);
+      }
+    };
+    const rules = (kind, paths) => run("/api/scan/rules", { rules: paths.map((path) => ({ path, kind })) });
+
+    // single-folder buttons (fall back to the normal form post without JS)
+    scan.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-rule]");
+      if (!btn) return;
+      e.preventDefault();
+      rules(btn.dataset.rule, [btn.dataset.path]);
+    });
+    scan.querySelectorAll("[data-bulk-rule]").forEach((btn) => btn.addEventListener("click", () => {
+      const paths = [...scan.querySelectorAll("[data-group-pick]:checked")].map((c) => c.value);
+      if (!paths.length) return say("Tick some group folders first.");
+      rules(btn.dataset.bulkRule, paths);
+    }));
+    scan.querySelector("[data-fix-suspects]")?.addEventListener("click", (e) => {
+      const paths = [...scan.querySelectorAll(".scan-row.is-suspect")].map((r) => r.dataset.path);
+      if (!paths.length) return say("No suspects left.");
+      if (!confirm(`Mark ${paths.length} folder(s) as groups? Their subfolders become separate games. You can undo this.`)) return;
+      e.currentTarget.remove();
+      rules("group", paths);
+    });
+    undoBtn?.addEventListener("click", () => run("/api/scan/rules/undo"));
+    applyFilter();
+  }
 
   // ---- source picker panes (+ Version is required unless "None yet")
   document.querySelectorAll("[data-source]").forEach((fs) => {

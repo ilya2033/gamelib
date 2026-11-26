@@ -265,7 +265,7 @@ def test_hundreds_of_small_games(dirs):
     c = Client(app).login()
     t0 = time.time()
     html = c.get("/scan").get_data(as_text=True)
-    assert html.count('name="folder-') == n
+    assert html.count('name="include"') == n
     rows = [(f"{['PC', 'Browser', 'Linux'][i % 3]}/Cat {i % 7}/Game {i:03d} v1.{i % 4}", f"Game {i:03d}", f"1.{i % 4}")
             for i in range(n)]
     r = c.post("/scan", import_form(rows))

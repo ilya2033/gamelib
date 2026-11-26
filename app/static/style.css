@@ -341,3 +341,15 @@ dialog.confirm p { margin: 0; color: var(--muted); }
 .scan-status { justify-content: space-between; }
 .scan-status .grow { flex: 1; min-width: 0; }
 .jobs-btn .badge { background: var(--warn); }
+
+/* ---------- 1.3.0: scan page in-place rules */
+.scan-tools { gap: 12px; margin-bottom: 6px; }
+.scan-filter { flex: 1; min-width: 180px; max-width: 360px; }
+.scan-section { margin-top: 10px; }
+.scan-section > summary { cursor: pointer; padding: 6px 2px; display: flex; gap: 8px; align-items: baseline; }
+.scan-section .scan-list { margin-top: 6px; }
+.scan-row.is-suspect { border-color: rgba(231, 184, 74, .55); }
+.rule-bar { display: flex; align-items: center; gap: 10px; justify-content: space-between; padding: 8px 12px; margin: 8px 0; background: var(--bg-2); border: 1px solid var(--line); border-radius: 8px; }
+.rules-busy [data-rule], .rules-busy [data-bulk-rule], .rules-busy [data-rule-undo] { pointer-events: none; opacity: .5; }
+.group-list li .check { flex: 1; min-width: 0; }
+.group-actions { display: flex; gap: 6px; flex-wrap: wrap; }

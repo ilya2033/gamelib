@@ -37,7 +37,8 @@ downloads. One Flask app, SQLite, one container, no external services.
   - Recognised name patterns: `Name v1.2`, `Name (v1.2)`, `Name [1.2]`, `Name_v1.2`, `Name-1.2.3` and `Name ver 1.2`.
 - **Telling games from groups:** a folder is a **version folder** if its name has a version in it, or it directly contains at least one file. `folder.jpg`, `desktop.ini`, `Thumbs.db` and hidden files don't count.
   - Any other folder is a **group** (first level) or **category** (deeper), and Scan looks inside it.
-  - If a folder is detected wrongly, use **this is a group** / **This is a game** on the Scan page. Your choice is remembered.
+  - If a folder is detected wrongly, use **this is a group** / **This is a game** / **All inside are games** on the Scan page. The list updates in place without reloading, and your choice is remembered.
+  - For many folders, tick them in *Group folders* and mark them together, or use **Fix all suspects**. **Undo last change** reverts the last batch.
   - Hidden folders, symlinks, `@eaDir` and `#recycle` are skipped.
 - **Groups and categories:**
   - A game's group and category come from where its **latest** version lives, and they update when you add, move or delete versions.

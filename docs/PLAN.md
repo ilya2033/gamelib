@@ -232,7 +232,8 @@ Template and env: one new advanced variable, `SCAN_DEPTH` (default `3`).
   - the `games-inside` rule;
   - artwork lookup;
   - **job versioning**: `version` and `app_version` per job, `@jobs.migrates(kind, from_version)` param upgrades, clear failure for jobs from an older version without an upgrade path, from a newer version, or of removed kinds.
-- **Still to do:** the Scan-page in-place toggles, bulk rules, Undo and suspects (below).
+- **Also done:** the Scan-page in-place toggles (`POST /api/scan/rules`, `reclassify` light job, `/scan/fragment/<job>`), bulk rules, Undo (`folder_rule_history`), suspects, sections and filter.
+- **Still to do:** a browser check of the new Scan page and Jobs pages, then release 1.3.0.
 
 **Why.** The share holds hundreds of GB across hundreds of small games. Right now, Scan, Import, measuring folder sizes, unpacking uploads and deleting folders all run inside the web request. A large share makes the page hang, and a reverse proxy can time out. Every slow share operation becomes a **job** run by **background workers**. A request only validates input, queues the job and returns immediately.
 

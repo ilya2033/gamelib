@@ -138,6 +138,15 @@ MIGRATIONS = [
     INSERT INTO folder_rules_new SELECT path, kind FROM folder_rules;
     DROP TABLE folder_rules;
     ALTER TABLE folder_rules_new RENAME TO folder_rules;
+    CREATE TABLE folder_rule_history (   -- one row per changed path; a batch is one user action (for Undo)
+        id       INTEGER PRIMARY KEY,
+        batch    TEXT NOT NULL,
+        path     TEXT NOT NULL,
+        old_kind TEXT,
+        new_kind TEXT,
+        at       TEXT NOT NULL
+    );
+    CREATE INDEX folder_rule_history_batch ON folder_rule_history(batch);
     """,
 ]
 SCHEMA_VERSION = len(MIGRATIONS)

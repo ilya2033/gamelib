@@ -18,7 +18,16 @@
   - **UI:** a Jobs page, a top-bar badge, live progress and Cancel.
 - **Job versioning.** Each job stores its handler version and the GameLib version that queued it. Changed handlers bump their version and register a params upgrade. Jobs from an older version are upgraded step by step, or failed with a clear message. Jobs from a newer version (after a rollback) are refused.
 - **Scheduled, incremental rescans.** `RESCAN_AT` (default `04:00`) and `RESCAN_INTERVAL_HOURS` (default `24`, `0` = off). Platform and size results are cached by folder modified time, so unchanged folders aren't re-read. **Rescan now** is on the Scan page.
-- **New folder rule `games-inside`:** every folder inside a given folder is a game.
+- **New folder rule `games-inside`:** every folder inside a given folder is a game, including folders added there later.
+- **Scan page fixes detection in place, without reloading.**
+  - **this is a group**, **This is a game**, **All inside are games** and **Reset detection** save the rule through a JSON API. A small background job re-checks only that folder's subtree, and just those rows are swapped in.
+  - Scroll position, open sections, ticks and edited titles and versions are kept. The saved scan result is patched too, so a reload shows the same thing.
+  - **Bulk:** tick group folders and mark them all at once, in one request and one Undo step.
+  - **Undo last change** reverts the last rule batch.
+  - **Big lists:** rows are grouped into collapsible sections per group, which remember whether they're open. There's a text filter and a "Suspects only" filter, with counts.
+  - **Suspects:** a "game" folder holding several game-like subfolders is flagged **probably a group**. **Fix all suspects** marks them all, after asking.
+  - Import rows are keyed by folder, so rows can come and go freely. The old numbered form still works.
+  - Without JavaScript, the buttons fall back to normal form posts.
 - **Fixes found by the 300-game test:**
   - Jobs no longer keep a database write open while reading the share, which used to block other writes.
   - Progress and cancel requests no longer wait on the database.
