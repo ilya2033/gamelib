@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Docs: updating on Unraid.** The README no longer suggests re-downloading `gamelib.xml` on an existing install. That replaces `my-GameLib.xml`, where Unraid keeps your saved settings, and resets the password, ports and paths to defaults. Add new variables with **Edit → Add another Path, Port, Variable** instead.
+
 ## 1.3.0 (2026-11-26)
 
 - **Artwork lookup:** games without a cover image now get artwork automatically from the game folder. Sources, in order:

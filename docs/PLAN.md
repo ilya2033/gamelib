@@ -59,7 +59,7 @@ With B you can also pin `:1.2` (patch updates only) or `:1.2.0` (frozen), and ro
 2. **Back up** with `docker exec -u 99:100 GameLib python -m app.backup`. The app also does this automatically before a migration.
 3. **Update:** in the Docker tab, **Check for updates**, then **Apply update**. Unraid pulls the new `:latest` and recreates the container. (Fallback A: build, then **Edit → Apply**.)
 4. **Check that it's healthy.** The container should be *healthy* within 60 s, and the footer should show the new version. Then run a scan and open one game page.
-5. **New template variables.** If a release adds any (e.g. `SCAN_DEPTH` in 1.2.0), they appear only after you update the template file in `templates-user/`, or after you add them manually with **Add another Path/Port/Variable**. Releases ship working defaults, so skipping this is safe.
+5. **New template variables.** If a release adds any (e.g. `SCAN_DEPTH` in 1.2.0), add them with **Edit → Add another Path, Port, Variable**. Never replace `templates-user/my-GameLib.xml` on an existing install: Unraid stores the saved values (password, ports, paths) in that file, so a new copy resets them all to defaults. Releases ship working defaults, so skipping new variables is safe.
 6. **Rollback:** set the previous tag, and restore `backups/*pre-vN.db` if the schema changed (see README).
 
 ### 1.4 Networking for plugins

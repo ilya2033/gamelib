@@ -89,8 +89,11 @@ wget -O /boot/config/plugins/dockerMan/templates-user/my-GameLib.xml \
 ```
 
 Or copy it over SMB to `\\TOWER\flash\config\plugins\dockerMan\templates-user\my-GameLib.xml`.
-The template's *TemplateURL* points at the latest release, so Unraid can pick
-up template changes later.
+
+> **First install only.** After you click **Apply**, Unraid saves your settings
+> (password, ports, paths) into this same `my-GameLib.xml`. Downloading the
+> template again replaces that file and **resets every setting to its default,
+> including an empty password**. For updates, see [Updating](#updating).
 
 ### 2. Create the container
 
@@ -179,6 +182,12 @@ Releases are published as `ghcr.io/<owner>/gamelib:<version>` (e.g. `1.1.0`),
 `:<major.minor>` (e.g. `1.1`, which moves only on patch releases) and `:latest`.
 
 1. **Read the release notes** (the GitHub Release, or `CHANGELOG.md`) for new settings and breaking changes.
+   - **Don't re-download the template.** `my-GameLib.xml` holds your saved settings, and replacing it wipes them.
+   - New settings always have working defaults, so you can skip them. To set one, click the GameLib icon → **Edit** → **Add another Path, Port, Variable, Label or Device**, choose *Config Type: Variable*, enter the *Key* from the release notes (for example `RESCAN_AT`) and a value, then **Apply**.
+   - Before editing the template by hand, keep a copy:
+     ```bash
+     cp /boot/config/plugins/dockerMan/templates-user/my-GameLib.xml /boot/config/plugins/dockerMan/my-GameLib.xml.bak
+     ```
 2. **Pull the update.** In the **Docker** tab, click **Check for updates**, then **Apply update** on GameLib. Unraid pulls the new image and recreates the container. Your data lives in the mapped folders, so nothing is lost.
    - If the check shows *not available* even though a release is out, click the GameLib icon and choose **Force update**.
    - If you rolled back earlier, Repository is still pinned to an old tag. Set it back to `ghcr.io/<owner>/gamelib:latest` first.

@@ -3,6 +3,9 @@
   Unraid Docker template for GameLib.
   Install: copy to /boot/config/plugins/dockerMan/templates-user/my-GameLib.xml,
   then Docker tab > Add Container > Template: GameLib. See README.md.
+  FIRST INSTALL ONLY: Unraid saves your settings (password, ports, paths) into
+  my-GameLib.xml. Copying this file over it later resets them all to defaults.
+  To add a new variable on update, use Edit > Add another Path, Port, Variable.
   __OWNER__ / __REPO__ are filled in by the release workflow; the copy attached
   to each GitHub Release is ready to use.
 -->
