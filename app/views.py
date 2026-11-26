@@ -887,8 +887,18 @@ def version_new(gid):
                                    destinations=group_folders()), 400
         flash(f"Added version {label}.", "ok")
         return redirect(url_for("main.game_detail", gid=gid))
-    return render_template("version_new.html", game=game, form={"dest": default_destination(gid)},
-                           folders=untracked_folders(), destinations=group_folders())
+    folders = untracked_folders()
+    return render_template("version_new.html", game=game,
+                           form={"dest": default_destination(gid), "folder": matching_folder(game["title"], folders)},
+                           folders=folders, destinations=group_folders())
+
+
+def matching_folder(title, folders):
+    """The untracked folder that looks like the newest version of this game."""
+    want = title.lower()
+    hits = [f for f in folders if storage.parse_folder_name(os.path.basename(f))[0].lower() == want]
+    return max(hits, key=lambda f: storage.natural_key(storage.parse_folder_name(os.path.basename(f))[1]),
+               default="")
 
 
 @bp.route("/versions/<int:vid>/edit", methods=["GET", "POST"])
@@ -1054,7 +1064,7 @@ def scan():
     sections = defaultdict(list)
     for r in rows:
         sections[r["group"] or ""].append(r)
-    can_undo = bool(get_db().execute("SELECT 1 FROM folder_rule_history LIMIT 1").fetchone())
+    can_undo = undo_label()
     return render_template("scan.html", rows=rows, relinks=relinks, group_rows=result.get("group_rows", []),
                            sections=sorted(sections.items(), key=lambda kv: (kv[0] != "", storage.natural_key(kv[0]))),
                            suspects=[r["folder"] for r in rows if r.get("suspect")], can_undo=can_undo,
@@ -1246,21 +1256,36 @@ def scan_fragment(job_id):
         abort(409, "That job hasn't finished.")
     res = j["result"] or {}
     tracked = tracked_folders()
-    rows = [r for r in res.get("rows", []) if r["folder"] not in tracked]
+    rows = sorted((r for r in res.get("rows", []) if r["folder"] not in tracked),
+                  key=lambda r: storage.natural_key(r["folder"]))
     macros = current_app.jinja_env.get_template("scan_macros.html").module
     return jsonify(
         roots=res.get("roots", []),
         removed=res.get("removed", []),
         rows=[{"folder": r["folder"], "section": r["group"] or "", "html": str(macros.scan_row(r))} for r in rows],
         group_rows=[{"path": g["path"], "html": str(macros.group_row(g))} for g in res.get("group_rows", [])],
-        can_undo=bool(get_db().execute("SELECT 1 FROM folder_rule_history LIMIT 1").fetchone()))
+        can_undo=bool(undo_label()), undo_label=undo_label())
+
+
+def undo_label():
+    """'12 folders → game' for the last rule batch, or '' if there is none."""
+    db = get_db()
+    last = db.execute("SELECT batch FROM folder_rule_history ORDER BY id DESC LIMIT 1").fetchone()
+    if last is None:
+        return ""
+    rows = db.execute("SELECT path, new_kind FROM folder_rule_history WHERE batch=?", (last["batch"],)).fetchall()
+    kinds = {r["new_kind"] or "automatic" for r in rows}
+    what = rows[0]["path"] if len(rows) == 1 else f"{len(rows)} folders"
+    return f"{what} → {', '.join(sorted(kinds))}"
 
 
 # ------------------------------------------------------------------- jobs
 
 @bp.get("/jobs")
 def jobs_list():
-    return render_template("jobs.html", jobs=jobs.recent(60))
+    show_all = request.args.get("all") == "1"
+    items = [j for j in jobs.recent(120) if show_all or j["kind"] != "reclassify"][:60]
+    return render_template("jobs.html", jobs=items, show_all=show_all)
 
 
 @bp.get("/jobs/<job_id>")

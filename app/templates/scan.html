@@ -18,8 +18,8 @@
 
   {# live status for in-place rule changes (filled by app.js) #}
   <div class="rule-bar" data-rule-bar {{ 'hidden' if not can_undo }}>
-    <span data-rule-status class="muted small"></span>
-    <button type="button" class="btn small ghost" data-rule-undo {{ 'hidden' if not can_undo }}>Undo last change</button>
+    <span data-rule-status class="muted small">{% if can_undo %}Last detection change: {{ can_undo }}{% endif %}</span>
+    <button type="button" class="btn small ghost" data-rule-undo {{ 'hidden' if not can_undo }} title="{{ can_undo }}">Undo last change</button>
   </div>
 
   {% if relinks %}

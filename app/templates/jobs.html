@@ -10,6 +10,7 @@
     <form method="post" action="{{ url_for('main.scan_rescan') }}">{{ csrf() }}<button class="btn small">Rescan share now</button></form>
     <form method="post" action="{{ url_for('main.artwork_missing') }}">{{ csrf() }}<button class="btn small ghost">Find artwork for games without a cover</button></form>
   </div>
+  <p class="small"><a href="{{ url_for('main.jobs_list', all=0 if show_all else 1) }}">{{ 'Hide' if show_all else 'Show' }} folder re-check jobs</a></p>
   {% if jobs %}
   <ul class="job-list">
     {% for j in jobs %}<li>{{ job_progress(j, request.path, compact=True) }}</li>{% endfor %}

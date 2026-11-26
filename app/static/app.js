@@ -92,14 +92,31 @@
       scan.querySelectorAll("[data-import-bar], .scan-tools").forEach((el) => { el.hidden = total === 0; });
       syncAll();
     };
+    let filtering = false;
     const applyFilter = () => {
       const q = (filter?.value || "").trim().toLowerCase();
       const only = suspectsOnly?.checked;
+      filtering = Boolean(q || only);
       scan.querySelectorAll(".scan-row").forEach((r) => {
         r.hidden = (q && !r.dataset.search.includes(q)) || (only && !r.classList.contains("is-suspect"));
       });
+      // while filtering: open sections with matches, hide sections without any
+      scan.querySelectorAll("[data-section]").forEach((sec) => {
+        const any = [...sec.querySelectorAll(".scan-row")].some((r) => !r.hidden);
+        sec.hidden = filtering && !any;
+        if (filtering && any) sec.open = true;
+        else if (!filtering) sec.open = !closed.has(sec.dataset.section);
+      });
       recount();
     };
+    // only rows you can see are imported
+    scan.querySelector("[data-scan-form]")?.addEventListener("submit", (e) => {
+      if (e.submitter && e.submitter.matches("[data-rule]")) return;
+      scan.querySelectorAll(".scan-row").forEach((r) => {
+        const cb = r.querySelector("[data-pick]");
+        if (cb) cb.disabled = r.hidden || r.closest("[data-section]")?.hidden;
+      });
+    });
     filter?.addEventListener("input", applyFilter);
     suspectsOnly?.addEventListener("change", applyFilter);
 
@@ -113,15 +130,24 @@
       syncAll();
     });
 
-    // remember which sections are collapsed
+    // remember which sections are collapsed (not while a filter forces them open)
     const KEY = "gamelib.scan.closed";
     const closed = new Set(JSON.parse(store.get(KEY) || "[]"));
     const wireSection = (sec) => {
       if (closed.has(sec.dataset.section)) sec.open = false;
       sec.addEventListener("toggle", () => {
+        if (filtering) return;
         sec.open ? closed.delete(sec.dataset.section) : closed.add(sec.dataset.section);
         store.set(KEY, JSON.stringify([...closed]));
       });
+    };
+    const byPath = (a, b) => a.dataset.path.localeCompare(b.dataset.path, undefined, { numeric: true, sensitivity: "base" });
+    const sortChildren = (list) => [...list.children].sort(byPath).forEach((el) => list.appendChild(el));
+    const placeSection = (sec) => {          // keep sections in name order, "Top level" first
+      const name = sec.dataset.section;
+      const after = [...sectionsEl.children].find((s) => s !== sec && name && (!s.dataset.section ? false :
+        s.dataset.section.localeCompare(name, undefined, { numeric: true, sensitivity: "base" }) > 0));
+      if (!name) sectionsEl.prepend(sec); else sectionsEl.insertBefore(sec, after || null);
     };
     scan.querySelectorAll("[data-section]").forEach(wireSection);
 
@@ -144,22 +170,31 @@
         if (under(el.dataset.path)) el.remove();
       });
       const tpl = scan.querySelector("[data-section-template]");
+      const touched = new Set();
+      let first = null;
       for (const row of frag.rows) {
         let sec = scan.querySelector(`[data-section="${esc(row.section)}"]`);
         if (!sec && tpl) {
           sec = tpl.content.firstElementChild.cloneNode(true);
           sec.dataset.section = row.section;
           sec.querySelector("b").textContent = row.section || "Top level";
-          sectionsEl.appendChild(sec);
+          placeSection(sec);
           wireSection(sec);
         }
-        sec?.querySelector(".scan-list").insertAdjacentHTML("beforeend", row.html);
+        if (!sec) continue;
+        const list = sec.querySelector(".scan-list");
+        list.insertAdjacentHTML("beforeend", row.html);
+        touched.add(list);
+        first = first || sec;
       }
+      touched.forEach(sortChildren);
       const gl = scan.querySelector("[data-group-list]");
-      if (gl) frag.group_rows.forEach((g) => gl.insertAdjacentHTML("beforeend", g.html));
-      if (undoBtn) undoBtn.hidden = !frag.can_undo;
+      if (gl) { frag.group_rows.forEach((g) => gl.insertAdjacentHTML("beforeend", g.html)); sortChildren(gl); }
+      if (undoBtn) { undoBtn.hidden = !frag.can_undo; undoBtn.title = frag.undo_label || ""; }
+      if (bar) bar.dataset.undoLabel = frag.undo_label || "";
       scan.querySelector("[data-empty]")?.remove();
       applyFilter();
+      if (first) { first.open = true; first.scrollIntoView({ behavior: "smooth", block: "nearest" }); }
     };
 
     const run = async (url, payload) => {
@@ -178,7 +213,8 @@
         const fr = await fetch(`/scan/fragment/${res.job}`);
         const frag = await fr.json();
         patch(frag);
-        say(`Updated ${frag.roots.length} folder(s): ${frag.rows.length} game row(s), ${frag.group_rows.length} group folder(s).`);
+        say(`Updated ${frag.roots.length} folder(s): ${frag.rows.length} game row(s), ${frag.group_rows.length} group folder(s).` +
+            (frag.undo_label ? ` Undo: ${frag.undo_label}.` : ""));
       } catch (err) {
         say(`Couldn't apply that: ${err.message}`);
       } finally {

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (1.3.0 in progress)
+## 1.3.0 (2026-11-26)
 
 - **Artwork lookup:** games without a cover image now get artwork automatically from the game folder. Sources, in order:
   - a cover image (`cover.*`, `folder.*`, `logo.*`, `poster.*`);

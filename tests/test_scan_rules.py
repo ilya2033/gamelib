@@ -129,3 +129,21 @@ def test_rules_api_validation(client, dirs):
         assert r.status_code == 400 and r.is_json, payload
     assert api(client, "/api/scan/rules", {"rules": [{"path": "x", "kind": "group"}]}, csrf=False).status_code == 403
     assert client.get("/scan/fragment/nope").status_code == 404
+
+
+def test_undo_label_and_new_version_preselect(client, dirs):
+    _, games = dirs
+    mk(games, "Packs/Pack 1/Inner v1")
+    mk(games, "Packs/Pack 2/Inner v1")
+    client.get("/scan")
+    rules(client, "game", ["Packs/Pack 1", "Packs/Pack 2"])
+    assert "Last detection change: 2 folders → game" in client.get("/scan").get_data(as_text=True)
+    mk(games, "Hero v1.0")
+    mk(games, "Hero v1.2")
+    mk(games, "Hero v1.10")
+    mk(games, "Zed v9")
+    client.post("/scan", {"include": ["Hero v1.0"], "title:Hero v1.0": "Hero", "label:Hero v1.0": "1.0",
+                          "platform:Hero v1.0": "windows"})
+    gid = q(client.app, "SELECT id FROM games WHERE title='Hero'")[0][0]
+    html = client.get(f"/games/{gid}/versions/new").get_data(as_text=True)
+    assert '<option value="Hero v1.10" selected>' in html             # newest matching version folder
