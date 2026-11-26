@@ -34,7 +34,7 @@ def app(dirs):
     data, games = dirs
     return create_app({
         "TESTING": True, "DATA_DIR": str(data), "GAMES_DIR": str(games),
-        "USERNAME": "admin", "PASSWORD": "secret",
+        "USERNAME": "admin", "PASSWORD": "secret", "JOBS_SYNC": True, "SCAN_RESULT_MAX_AGE": 0,
     })
 
 
@@ -61,7 +61,13 @@ class Client:
         if kw.pop("raw", False):
             h.setdefault("X-CSRF-Token", self.token() if csrf else "")
             return self.c.post(url, data=data.get("body", b""), headers=h, **kw)
-        return self.c.post(url, data=data, headers=h, **kw)
+        r = self.c.post(url, data=data, headers=h, **kw)
+        # Like a browser: follow the redirect to a background job's page. Jobs
+        # run inline in tests, so that page redirects to the result (or shows
+        # the error, with status 200).
+        if r.status_code == 302 and "/jobs/" in r.headers.get("Location", ""):
+            r = self.c.get(r.headers["Location"])
+        return r
 
     def login(self):
         self.get("/login")

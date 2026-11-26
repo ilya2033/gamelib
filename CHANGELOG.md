@@ -11,7 +11,18 @@
   Installers, crash handlers and redistributables are skipped when picking the exe.
 - **Icon covers:** icons are rendered centred on a cover card in the game's colour, so they aren't stretched. Small pixel-art icons stay crisp.
 - **Find artwork:** a new button on the edit page looks again for an existing game.
-- **Groundwork for background jobs:** an in-process job runner, plus progress and cancel hooks for unzipping and size measuring. Not used yet; see `docs/PLAN.md` §5.
+- **Background workers and jobs.** **Database schema v3 → v4**, backed up first as usual. Nothing slow runs in a web request any more:
+  - **What runs as a job:** opening Scan runs a background discovery. Import, unpacking uploads (with progress in bytes), measuring folder sizes ("measuring…" until done), deleting folders and bulk artwork lookup are all jobs.
+  - **Two lanes:** share-heavy jobs run one at a time; a light lane has 2 threads.
+  - **The queue:** jobs are kept in SQLite. On a restart, safe jobs are re-queued and interrupted uploads are cleaned up.
+  - **UI:** a Jobs page, a top-bar badge, live progress and Cancel.
+- **Job versioning.** Each job stores its handler version and the GameLib version that queued it. Changed handlers bump their version and register a params upgrade. Jobs from an older version are upgraded step by step, or failed with a clear message. Jobs from a newer version (after a rollback) are refused.
+- **Scheduled, incremental rescans.** `RESCAN_AT` (default `04:00`) and `RESCAN_INTERVAL_HOURS` (default `24`, `0` = off). Platform and size results are cached by folder modified time, so unchanged folders aren't re-read. **Rescan now** is on the Scan page.
+- **New folder rule `games-inside`:** every folder inside a given folder is a game.
+- **Fixes found by the 300-game test:**
+  - Jobs no longer keep a database write open while reading the share, which used to block other writes.
+  - Progress and cancel requests no longer wait on the database.
+  - An upload cancelled before it started now removes its temporary file.
 
 ## 1.2.0 (2026-11-26)
 

@@ -1,10 +1,19 @@
 {% extends "base.html" %}
-{% from "macros.html" import platform_options, csrf %}
+{% from "macros.html" import platform_options, csrf, job_progress %}
 {% block title %}Scan share{% endblock %}
 {% block body %}
 <main class="form-page wide">
   <a class="back" href="{{ url_for('main.index') }}">← Library</a>
   <h1>Scan games share</h1>
+  <div class="row scan-status">
+    {% if running %}
+      <div class="grow">{{ job_progress(running, url_for('main.scan')) }}</div>
+    {% else %}
+      <span class="muted small">{% if last %}Last scanned {{ last.finished_at|when }}{% if last.kind == 'rescan' %} (scheduled){% endif %}.{% endif %}</span>
+      <form method="post" action="{{ url_for('main.scan_rescan') }}">{{ csrf() }}<button class="btn small">Rescan now</button></form>
+    {% endif %}
+  </div>
+  {% if failed %}<div class="flash error" role="alert"><span>The last scan failed: {{ failed.error }}</span></div>{% endif %}
 
   {% if relinks %}
   <section class="panel relinks">
@@ -57,7 +66,7 @@
       <button class="btn primary">Import selected</button>
     </div>
   </form>
-  {% elif not relinks %}
+  {% elif not relinks and not running %}
   <div class="empty"><p>Every game folder on the games share is already in the library.</p>
     <p class="muted small">Scanned: <code>{{ config.GAMES_DIR }}</code>, {{ config.SCAN_DEPTH }} folder levels deep.</p></div>
   {% endif %}

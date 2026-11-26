@@ -100,6 +100,45 @@ MIGRATIONS = [
     );
     ALTER TABLE game_tags ADD COLUMN source TEXT NOT NULL DEFAULT 'user';
     """,
+    # v4 (1.3.0): background job queue, incremental scan cache, 'games-inside' rule
+    """
+    CREATE TABLE jobs (
+        id               TEXT PRIMARY KEY,
+        kind             TEXT NOT NULL,
+        lane             TEXT NOT NULL,
+        label            TEXT NOT NULL,
+        state            TEXT NOT NULL,      -- queued | running | done | failed | cancelled | interrupted
+        params           TEXT NOT NULL,      -- JSON
+        version          INTEGER NOT NULL DEFAULT 1,  -- handler version that created the params
+        app_version      TEXT,               -- GameLib version that queued it
+        done             INTEGER NOT NULL DEFAULT 0,
+        total            INTEGER NOT NULL DEFAULT 0,
+        message          TEXT NOT NULL DEFAULT '',
+        result           TEXT,               -- JSON
+        error            TEXT,
+        cancel_requested INTEGER NOT NULL DEFAULT 0,
+        seen             INTEGER NOT NULL DEFAULT 0,
+        created_at       TEXT NOT NULL,
+        started_at       TEXT,
+        finished_at      TEXT
+    );
+    CREATE INDEX jobs_queue ON jobs(lane, state, created_at);
+    CREATE INDEX jobs_kind ON jobs(kind, state, finished_at);
+    CREATE TABLE scan_cache (
+        path       TEXT PRIMARY KEY,
+        mtime      REAL NOT NULL,
+        platform   TEXT,
+        size_bytes INTEGER,
+        last_seen  TEXT NOT NULL
+    );
+    CREATE TABLE folder_rules_new (
+        path TEXT PRIMARY KEY,
+        kind TEXT NOT NULL CHECK (kind IN ('game', 'group', 'games-inside'))
+    );
+    INSERT INTO folder_rules_new SELECT path, kind FROM folder_rules;
+    DROP TABLE folder_rules;
+    ALTER TABLE folder_rules_new RENAME TO folder_rules;
+    """,
 ]
 SCHEMA_VERSION = len(MIGRATIONS)
 KEEP_MANUAL = 10   # manual backups kept

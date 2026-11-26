@@ -75,4 +75,16 @@
   <Config Name="Scan depth" Target="SCAN_DEPTH" Default="3" Mode=""
           Description="How many folder levels Scan looks into (1-6). 3 fits Group/Category/Game v1. Level 1 folders are groups, deeper ones categories."
           Type="Variable" Display="advanced" Required="false" Mask="false">3</Config>
+
+  <Config Name="Rescan time" Target="RESCAN_AT" Default="04:00" Mode=""
+          Description="Local time (HH:MM) of the scheduled background rescan of the share, when disks are usually idle."
+          Type="Variable" Display="advanced" Required="false" Mask="false">04:00</Config>
+
+  <Config Name="Rescan every (hours)" Target="RESCAN_INTERVAL_HOURS" Default="24" Mode=""
+          Description="How often the scheduled rescan runs, counted from the rescan time. 0 turns scheduled rescans off (Rescan now still works)."
+          Type="Variable" Display="advanced" Required="false" Mask="false">24</Config>
+
+  <Config Name="Light job threads" Target="JOB_LIGHT_WORKERS" Default="2" Mode=""
+          Description="Threads for quick background jobs. Heavy share jobs always run one at a time."
+          Type="Variable" Display="advanced" Required="false" Mask="false">2</Config>
 </Container>

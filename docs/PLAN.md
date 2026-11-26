@@ -224,6 +224,16 @@ Template and env: one new advanced variable, `SCAN_DEPTH` (default `3`).
 
 ## 5. Background workers and jobs → 1.3.0 (schema v4)
 
+**Status (2026-11-26):**
+- **Done:**
+  - workers and lanes, the SQLite queue, cancel, restart recovery;
+  - every job kind in the table;
+  - scheduled incremental rescans, the Jobs page, indicator and live progress;
+  - the `games-inside` rule;
+  - artwork lookup;
+  - **job versioning**: `version` and `app_version` per job, `@jobs.migrates(kind, from_version)` param upgrades, clear failure for jobs from an older version without an upgrade path, from a newer version, or of removed kinds.
+- **Still to do:** the Scan-page in-place toggles, bulk rules, Undo and suspects (below).
+
 **Why.** The share holds hundreds of GB across hundreds of small games. Right now, Scan, Import, measuring folder sizes, unpacking uploads and deleting folders all run inside the web request. A large share makes the page hang, and a reverse proxy can time out. Every slow share operation becomes a **job** run by **background workers**. A request only validates input, queues the job and returns immediately.
 
 ### Workers

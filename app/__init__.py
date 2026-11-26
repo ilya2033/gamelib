@@ -4,7 +4,7 @@ from datetime import timedelta
 
 from flask import Flask, jsonify, render_template, request
 
-from . import auth, db, storage, views
+from . import auth, db, jobs, storage, tasks, views  # noqa: F401  (tasks registers job handlers)
 from .version import __version__
 
 
@@ -31,9 +31,17 @@ def create_app(config=None):
         SESSION_COOKIE_SECURE=env.get("COOKIE_SECURE", "0") == "1",
         SCAN_DEPTH=min(max(int(env.get("SCAN_DEPTH", "3") or 3), 1), 6),
         LAYOUT_CACHE_SECONDS=60,
+        SCAN_RESULT_MAX_AGE=60,          # opening Scan reuses a discovery younger than this
+        JOBS_SYNC=False,                 # tests: run jobs inline
+        JOB_WORKERS_AUTOSTART=True,
+        JOB_LIGHT_WORKERS=int(env.get("JOB_LIGHT_WORKERS", "2") or 2),
+        RESCAN_AT=env.get("RESCAN_AT", "04:00"),
+        RESCAN_INTERVAL_HOURS=float(env.get("RESCAN_INTERVAL_HOURS", "24") or 0),
     )
     if config:
         app.config.update(config)
+    if app.config.get("TESTING") and "JOBS_SYNC" not in (config or {}):
+        app.config["JOBS_SYNC"] = True   # tests run jobs inline unless they ask for real threads
     if not app.config["PASSWORD"]:
         raise RuntimeError("GAMELIB_PASSWORD is not set. Set it in the container settings.")
 
@@ -58,7 +66,10 @@ def create_app(config=None):
     app.register_blueprint(views.bp)
     views.register_filters(app)
     app.jinja_env.globals["APP_VERSION"] = __version__
+    app.config["APP_VERSION"] = __version__
     storage.cleanup_stale(app.config["TMP_DIR"], app.config["GAMES_DIR"])
+    jobs.start_workers(app)
+    jobs.start_scheduler(app)
 
     def handle_http_error(e):
         if request.path.startswith("/api/"):

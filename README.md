@@ -54,7 +54,15 @@ downloads. One Flask app, SQLite, one container, no external services.
   - If the folder name already exists, a suffix is added, for example ` (2)`. Nothing is overwritten.
 - **Cover:** if you don't upload one, a `cover.*`, `folder.*`, `logo.*` or `poster.*` image (png, jpg, webp) at the top of the game folder is used automatically.
 - **Read-only:** apart from uploads and the optional "also delete files" on delete, the app never changes the share. To make it strictly track-only, mount `/games` read-only.
-- **Spun-down disks:** the folder layout is cached for 60 seconds, so browsing the library doesn't keep waking the array's disks. Scan always reads the share fresh.
+- **Background jobs:** everything slow runs in background workers, so pages never wait for the share. That covers scanning, importing, unpacking uploads, measuring folder sizes, deleting folders, and finding artwork.
+  - **Jobs page:** the **⏳ Jobs** page and top-bar badge show progress, and you can **Cancel** a job.
+  - **One at a time:** share-heavy jobs run one after another, so an Unraid array isn't thrashed.
+  - **Restarts:** jobs survive a container restart. Scans and size checks are re-queued; an interrupted upload is cleaned up and marked failed.
+  - **Job versions:** each job records the version of the handler that created it. After an update, older queued jobs are upgraded or clearly failed, never run with params they don't understand.
+- **Scheduled rescans:** by default every 24 h at 04:00, the share is rescanned in the background. Scan then opens instantly, with "Last scanned …".
+  - It is **incremental**: platform detection and sizes are cached per folder and only redone when a folder's modified time changes.
+  - It never imports anything by itself.
+- **Spun-down disks:** pages never walk the share. The folder list used by pages is cached and refreshed in the background.
 
 ## Install on Unraid
 
@@ -101,6 +109,8 @@ up template changes later.
 | Trusted origins | `TRUSTED_ORIGINS` | empty | Only for a reverse proxy on another hostname. *(advanced)* |
 | Secure cookie | `COOKIE_SECURE` | `0` | `1` only when served over HTTPS. *(advanced)* |
 | Max unpacked size | `MAX_UNCOMPRESSED_GB` | `500` | Zip-bomb guard. *(advanced)* |
+| Rescan time / interval | `RESCAN_AT` / `RESCAN_INTERVAL_HOURS` | `04:00` / `24` | Scheduled background rescan of the share; `0` hours = off. *(advanced)* |
+| Light job threads | `JOB_LIGHT_WORKERS` | `2` | Quick background jobs. Heavy share jobs always run one at a time. *(advanced)* |
 | Scan depth | `SCAN_DEPTH` | `3` | How many folder levels Scan looks into (1–6). `3` fits *Group / Category / Game v1*. *(advanced)* |
 
 4. Click **Apply**. Unraid pulls the image, and the container should turn *healthy* within about a minute.

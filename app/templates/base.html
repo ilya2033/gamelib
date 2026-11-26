@@ -30,6 +30,8 @@
       <span class="ico" aria-hidden="true">⟳</span><span class="lbl">Scan</span>
       {% if untracked %}<span class="badge">{{ untracked }}</span>{% endif %}
     </a>
+    <a class="btn ghost jobs-btn" href="{{ url_for('main.jobs_list') }}" title="Background jobs" data-jobs-indicator>
+      <span class="ico" aria-hidden="true">⏳</span><span class="lbl">Jobs</span>{% if active_jobs %}<span class="badge">{{ active_jobs }}</span>{% endif %}</a>
     <a class="btn ghost" href="{{ url_for('main.settings_statuses') }}" title="Settings"><span class="ico" aria-hidden="true">⚙</span><span class="lbl">Settings</span></a>
     <a class="btn primary" href="{{ url_for('main.game_new') }}" title="Add game"><span class="ico" aria-hidden="true">＋</span><span class="lbl">Add game</span></a>
     <form method="post" action="{{ url_for('auth.logout') }}">

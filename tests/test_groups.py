@@ -258,9 +258,9 @@ def test_v2_database_migrates_to_v3(dirs):
     con.close()
     create_app({"TESTING": True, "DATA_DIR": str(data), "GAMES_DIR": str(games), "PASSWORD": "x"})
     con = sqlite3.connect(path)
-    assert con.execute("PRAGMA user_version").fetchone()[0] == 3
+    assert con.execute("PRAGMA user_version").fetchone()[0] == dbmod.SCHEMA_VERSION
     assert con.execute("SELECT name FROM sqlite_master WHERE name='folder_rules'").fetchone()
-    assert any("-pre-v3" in f for f in os.listdir(data / "backups"))
+    assert any(f"-pre-v{dbmod.SCHEMA_VERSION}" in f for f in os.listdir(data / "backups"))
 
 
 def test_layout_cache_is_invalidated_by_writes(client, share):

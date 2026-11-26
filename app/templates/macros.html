@@ -76,3 +76,27 @@
   </form>
 </dialog>
 {% endmacro %}
+
+{% macro csrf_field() %}<input type="hidden" name="csrf" value="{{ csrf_token() }}">{% endmacro %}
+
+{# Progress card for a background job; polls /api/jobs/<id> while active #}
+{% macro job_progress(job, back, compact=False) %}
+<div class="job-card state-{{ job.state }}" {% if job.active %}data-job-poll="{{ job.id }}"{% endif %}>
+  <div class="job-head">
+    {% if compact %}<a href="{{ url_for('main.job_page', job_id=job.id) }}"><b>{{ job.label }}</b></a>{% endif %}
+    <span class="job-state badge {{ 'ok' if job.state == 'done' else 'warn' if job.active else '' }}" data-job-state>{{ job.state }}</span>
+    <span class="muted small">{{ job.created_at|when }}</span>
+  </div>
+  {% if job.active or not compact %}
+  <div class="progress"><div class="bar" style="width: {{ job.pct if job.pct is not none else (100 if not job.active else 8) }}%"></div></div>
+  {% endif %}
+  <div class="job-msg muted small" data-job-msg>{{ job.message or ('Waiting for an earlier share job to finish…' if job.state == 'queued' else '') }}{% if job.error and compact %} · {{ job.error }}{% endif %}</div>
+  {% if job.active %}
+  <form method="post" action="{{ url_for('main.job_cancel', job_id=job.id) }}" class="job-cancel">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="next" value="{{ back }}">
+    <button class="btn small ghost">Cancel</button>
+  </form>
+  <noscript><meta http-equiv="refresh" content="3"></noscript>
+  {% endif %}
+</div>
+{% endmacro %}

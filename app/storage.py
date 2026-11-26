@@ -163,7 +163,7 @@ def walk_share(games_dir, rules=None, depth=3, known_games=()):
     rules = rules or {}
     known = set(known_games)
 
-    def rec(rel, level):
+    def rec(rel, level, children_are_games=False):
         base = os.path.join(games_dir, rel) if rel else games_dir
         try:
             with os.scandir(base) as it:
@@ -178,6 +178,11 @@ def walk_share(games_dir, rules=None, depth=3, known_games=()):
                 continue
             p = f"{rel}/{e.name}" if rel else e.name
             kind = rules.get(p)
+            inside = kind == "games-inside"
+            if inside:
+                kind = "group"
+            elif kind is None and children_are_games:
+                kind = "game"
             if kind is None:
                 if p in known or level >= depth:
                     kind = "game"
@@ -185,7 +190,7 @@ def walk_share(games_dir, rules=None, depth=3, known_games=()):
                     kind = "game" if looks_like_version(e.path, e.name) else "group"
             yield kind, p
             if kind == "group":
-                yield from rec(p, level + 1)
+                yield from rec(p, level + 1, inside)
 
     yield from rec("", 1)
 

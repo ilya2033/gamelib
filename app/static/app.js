@@ -85,6 +85,27 @@
     sync();
   });
 
+  // ---- background jobs: live progress, reload when finished
+  document.querySelectorAll("[data-job-poll]").forEach((card) => {
+    const id = card.dataset.jobPoll;
+    const bar = card.querySelector(".bar");
+    const msg = card.querySelector("[data-job-msg]");
+    const st = card.querySelector("[data-job-state]");
+    const tick = async () => {
+      try {
+        const r = await fetch(`/api/jobs/${id}`, { headers: { Accept: "application/json" } });
+        if (!r.ok) return setTimeout(tick, 3000);
+        const j = await r.json();
+        if (bar && j.pct !== null) bar.style.width = j.pct + "%";
+        if (msg && j.message) msg.textContent = j.message + (j.total ? ` (${j.done} / ${j.total})` : "");
+        if (st) st.textContent = j.state;
+        if (!j.active) return location.reload();
+      } catch { /* network blip */ }
+      setTimeout(tick, 1000);
+    };
+    setTimeout(tick, 600);
+  });
+
   // ---- streamed upload with progress (raw body, not multipart)
   function fmt(n) {
     const u = ["B", "KB", "MB", "GB", "TB"]; let i = 0;

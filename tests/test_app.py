@@ -120,8 +120,7 @@ def test_unsafe_zip_upload_rejected(client, dirs):
     _, games = dirs
     body = make_zip({"ok.html": b"1", "../../escape.txt": b"pwned"})
     r = add_game_with_upload(client, title="Evil", body=body)
-    assert r.status_code == 400
-    assert "Rejected zip" in r.get_data(as_text=True)
+    assert "Rejected zip" in r.get_data(as_text=True)          # shown on the failed job's page
     assert os.listdir(games) == []  # staging cleaned, nothing installed
     assert not (games.parent / "escape.txt").exists()
     assert sqlite3.connect(client.app.config["DB_PATH"]).execute("SELECT COUNT(*) FROM games").fetchone()[0] == 0

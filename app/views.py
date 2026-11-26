@@ -17,7 +17,7 @@ from PIL import Image, UnidentifiedImageError
 import colorsys
 import io
 
-from . import artwork, storage
+from . import artwork, jobs, storage
 from .db import get_db
 from .storage import PLATFORMS, BadPath, UnsafeZip
 from .version import __version__
@@ -82,29 +82,97 @@ def folder_rules():
     return {r["path"]: r["kind"] for r in get_db().execute("SELECT path, kind FROM folder_rules")}
 
 
-def share_layout(fresh=False):
-    """(untracked version folders, group folders), both share-relative."""
-    key = (games_dir(), cfg("DB_PATH"), cfg("SCAN_DEPTH"))
-    ttl = cfg("LAYOUT_CACHE_SECONDS")
-    with _layout_lock:
-        if not fresh and _layout["key"] == key and time.monotonic() - _layout["at"] < ttl:
-            return _layout["value"]
+def _compute_layout(key):
     tracked = tracked_folders()
     games, groups = [], []
     for kind, p in storage.walk_share(games_dir(), folder_rules(), cfg("SCAN_DEPTH"), tracked):
         (games if kind == "game" else groups).append(p)
     value = ([p for p in games if p not in tracked], groups)
     with _layout_lock:
-        _layout.update(key=key, at=time.monotonic(), value=value)
+        _layout.update(key=key, at=time.monotonic(), value=value, refreshing=False)
     return value
 
 
-def untracked_folders(fresh=True):
+def share_layout(fresh=False):
+    """(untracked version folders, group folders), both share-relative.
+
+    fresh=True walks the share now (background jobs only). Otherwise the
+    cached value is returned and, when stale, refreshed in a background
+    thread, so a web request never walks the share."""
+    key = (games_dir(), cfg("DB_PATH"), cfg("SCAN_DEPTH"))
+    if fresh or cfg("JOBS_SYNC"):
+        return _compute_layout(key)
+    with _layout_lock:
+        same = _layout["key"] == key
+        if same and time.monotonic() - _layout["at"] < cfg("LAYOUT_CACHE_SECONDS"):
+            return _layout["value"]
+        value = _layout["value"] if same else ([], [])
+        if _layout.get("refreshing"):
+            return value
+        _layout["refreshing"] = True
+    app = current_app._get_current_object()
+
+    def refresh():
+        with app.app_context():
+            try:
+                _compute_layout(key)
+            except Exception:
+                with _layout_lock:
+                    _layout["refreshing"] = False
+                raise
+    threading.Thread(target=refresh, daemon=True, name="gamelib-layout").start()
+    return value
+
+
+def untracked_folders(fresh=False):
     return share_layout(fresh)[0]
 
 
-def group_folders(fresh=True):
+def group_folders(fresh=False):
     return share_layout(fresh)[1]
+
+
+# ----------------------------------------- single-folder checks (no walks)
+
+def _check_rel(rel):
+    parts = rel.split("/") if rel else []
+    if not parts or any(not x or storage.skipped_name(x) for x in parts) or len(parts) > cfg("SCAN_DEPTH"):
+        raise UserError("That folder isn't on the games share.")
+
+
+def _resolve_dir(rel):
+    _check_rel(rel)
+    try:
+        path = storage.resolve_no_links(games_dir(), rel)
+    except BadPath:
+        raise UserError("That folder isn't on the games share.") from None
+    if not os.path.isdir(path):
+        raise UserError("That folder no longer exists on the share.")
+    return path
+
+
+def _in_tracked(rel, include_parents=False):
+    for t in tracked_folders():
+        if rel == t or rel.startswith(t + "/") or (include_parents and t.startswith(rel + "/")):
+            return True
+    return False
+
+
+def check_untracked_folder(rel):
+    """A folder that can become a version: exists, inside the share, no
+    symlinks, not tracked and not inside or around a tracked folder."""
+    path = _resolve_dir(rel)
+    if _in_tracked(rel, include_parents=True):
+        raise UserError("That folder is already in the library.")
+    return path
+
+
+def check_group_folder(rel):
+    """A folder an upload can go into (it may already hold other games)."""
+    path = _resolve_dir(rel)
+    if rel.count("/") + 1 >= cfg("SCAN_DEPTH") or _in_tracked(rel):
+        raise UserError("Pick a destination folder from the list.")
+    return path
 
 
 # ------------------------------------------------------------ categories
@@ -373,49 +441,39 @@ def discard_upload(upload_id):
             pass
 
 
-def materialize_source(form, title, label):
-    """Returns the share-relative folder for a new version, or None."""
-    source = form.get("source", "upload")
-    if source == "none":
-        return None
-    if source == "folder":
-        folder = form.get("folder", "")
-        if folder not in untracked_folders():
-            raise UserError("Pick an untracked folder from the games share.")
-        storage.resolve_no_links(games_dir(), folder)
-        return folder
-    parent = destination_from_form(form)
+def upload_from_form(form):
+    """Validated upload id from a form (the file stays in /data/tmp)."""
     upload_id = form.get("upload_id", "")
     if not UPLOAD_ID.match(upload_id):
         raise UserError("Upload a file first and wait for it to finish.")
-    data_path, meta_path = upload_paths(upload_id)
-    if not os.path.exists(data_path):
+    if not os.path.exists(upload_paths(upload_id)[0]):
         raise UserError("That upload has expired. Upload the file again.")
-    with open(meta_path) as f:
-        meta = json.load(f)
+    return upload_id
+
+
+def prepare_destination(form):
+    """Validate the destination and create any new subfolder (cheap mkdirs)."""
+    parent = destination_from_form(form)
     try:
         created = storage.make_dirs_in(games_dir(), parent)
-        for p in created:  # folders made for the destination are groups, whatever their name
-            get_db().execute("INSERT OR REPLACE INTO folder_rules(path, kind) VALUES (?, 'group')", (p,))
-        folder = storage.install_upload(data_path, meta["filename"], games_dir(),
-                                        f"{title} v{label}", cfg("MAX_UNCOMPRESSED_BYTES"), parent)
+    except BadPath as e:
+        raise UserError(str(e)) from None
+    for p in created:  # folders made for the destination are groups, whatever their name
+        get_db().execute("INSERT OR REPLACE INTO folder_rules(path, kind) VALUES (?, 'group')", (p,))
+    if created:
         invalidate_layout()
-        return folder
-    except UnsafeZip as e:
-        raise UserError(f"Rejected zip: {e}") from None
-    finally:
-        discard_upload(upload_id)
+    return parent
 
 
 def destination_from_form(form):
     """Share subfolder an upload goes into: an existing group folder (or the
     top level), optionally plus a new subfolder typed by the user."""
     dest = form.get("dest", "")
-    if dest and dest not in group_folders():
-        raise UserError("Pick a destination folder from the list.")
+    if dest:
+        check_group_folder(dest)
     extra = storage.clean_subpath(form.get("dest_new", ""))
     parent = "/".join(p for p in (dest, extra) if p)
-    if parent.count("/") + 1 >= cfg("SCAN_DEPTH"):
+    if parent and parent.count("/") + 1 >= cfg("SCAN_DEPTH"):
         raise UserError(f"That destination is too deep: scans look {cfg('SCAN_DEPTH')} folder levels deep, "
                         "so the game folder would not be found. Pick a shallower destination.")
     return parent
@@ -426,18 +484,52 @@ def default_destination(gid):
     row = get_db().execute("SELECT folder FROM versions WHERE game_id=? ORDER BY added_at DESC, id DESC LIMIT 1",
                            (gid,)).fetchone()
     parent = row["folder"].rpartition("/")[0] if row else ""
-    return parent if parent in group_folders() else ""
+    if not parent:
+        return ""
+    try:
+        check_group_folder(parent)
+        return parent
+    except UserError:
+        return ""
 
 
-def insert_version(gid, label, folder, notes="", added_at=None):
-    path = storage.resolve_in(games_dir(), folder)
+def insert_version(gid, label, folder, notes="", added_at=None, size=-1):
+    """Add a version row. size=-1 means "measuring": call measure_later()
+    after committing so a background job fills it in."""
+    storage.resolve_in(games_dir(), folder)
     added_at = added_at or now()
-    get_db().execute(
+    vid = get_db().execute(
         "INSERT INTO versions(game_id,label,folder,notes,size_bytes,added_at) VALUES (?,?,?,?,?,?)",
-        (gid, label, folder, notes, storage.folder_size(path), added_at))
+        (gid, label, folder, notes, size, added_at)).lastrowid
     get_db().execute("UPDATE games SET updated_at=max(updated_at, ?) WHERE id=?", (added_at, gid))
     sync_folder_categories(gid)
     invalidate_layout()
+    return vid
+
+
+def measure_later(vids):
+    if vids:
+        jobs.enqueue("measure", {"vids": list(vids)},
+                     f"Measure {len(vids)} folder{'s' if len(vids) != 1 else ''}")
+
+
+def create_game(title, platform, description="", cover=None, status=None, tags="", categories=""):
+    ts = now()
+    gid = get_db().execute(
+        "INSERT INTO games(title,platform,description,cover,created_at,updated_at,status_id,status_changed_at) "
+        "VALUES (?,?,?,?,?,?,?,?)",
+        (title, platform, description, cover, ts, ts, status_from_form(status), ts)).lastrowid
+    set_tags(gid, parse_tags(tags))
+    set_manual_categories(gid, parse_categories(categories))
+    return gid
+
+
+def deletable(folder):
+    """Checked in the request, before the DB row goes: refuses symlinks."""
+    try:
+        return os.path.isdir(storage.resolve_no_links(games_dir(), folder))
+    except BadPath:
+        return False
 
 
 def delete_folder(folder):
@@ -638,30 +730,40 @@ def game_new():
         title = form.get("title", "").strip()
         platform = form.get("platform", "other")
         label = form.get("version", "").strip()
+        source = form.get("source", "upload")
         cover = None
         try:
             if not title:
                 raise UserError("Title is required.")
             if platform not in PLATFORMS:
                 raise UserError("Unknown platform.")
-            if form.get("source") != "none" and not label:
+            if source != "none" and not label:
                 raise UserError("Version label is required.")
+            db = get_db()
+            if source == "upload":
+                upload_id = upload_from_form(form)
+                parent = prepare_destination(form)
+                cover = cover_from_form()
+                db.commit()
+                job_id = jobs.enqueue("install", {
+                    "mode": "new_game", "upload_id": upload_id, "parent": parent, "title": title,
+                    "platform": platform, "description": form.get("description", "").strip(),
+                    "tags": form.get("tags", ""), "categories": form.get("categories", ""),
+                    "status": form.get("status"), "label": label, "notes": form.get("notes", "").strip(),
+                    "cover": cover}, f"Unpack {title} v{label}")
+                return redirect(url_for("main.job_page", job_id=job_id))
+            folder = None
+            if source == "folder":
+                folder = form.get("folder", "")
+                check_untracked_folder(folder)
             cover = cover_from_form()
-            folder = materialize_source(form, title, label)
             if folder and not cover:
                 cover = auto_cover(folder, title)
-            ts = now()
-            db = get_db()
-            gid = db.execute(
-                "INSERT INTO games(title,platform,description,cover,created_at,updated_at,status_id,status_changed_at) "
-                "VALUES (?,?,?,?,?,?,?,?)",
-                (title, platform, form.get("description", "").strip(), cover, ts, ts,
-                 status_from_form(form.get("status")), ts)).lastrowid
-            set_tags(gid, parse_tags(form.get("tags")))
-            set_manual_categories(gid, parse_categories(form.get("categories")))
-            if folder:
-                insert_version(gid, label, folder, form.get("notes", "").strip(), ts)
+            gid = create_game(title, platform, form.get("description", "").strip(), cover,
+                              form.get("status"), form.get("tags"), form.get("categories"))
+            vid = insert_version(gid, label, folder, form.get("notes", "").strip()) if folder else None
             db.commit()
+            measure_later([vid] if vid else [])
         except (UserError, BadPath) as e:
             remove_cover(cover)
             flash(str(e), "error")
@@ -729,18 +831,21 @@ def game_delete(gid):
     game = get_game(gid)
     require_confirm()
     db = get_db()
-    removed = 0
+    to_delete = []
     if request.form.get("delete_files"):
         for v in db.execute("SELECT folder FROM versions WHERE game_id=?", (gid,)).fetchall():
-            removed += delete_folder(v["folder"])
+            if deletable(v["folder"]):
+                to_delete.append(v["folder"])
     db.execute("DELETE FROM games WHERE id=?", (gid,))
     db.execute("DELETE FROM tags WHERE id NOT IN (SELECT tag_id FROM game_tags)")
     prune_categories()
     invalidate_layout()
     db.commit()
     remove_cover(game["cover"])
+    if to_delete:
+        jobs.enqueue("delete", {"folders": to_delete}, f"Delete {len(to_delete)} folder(s) of {game['title']}")
     msg = f"Removed {game['title']} from the library"
-    flash(msg + (f" and deleted {removed} folder(s) from the share." if removed else "."), "ok")
+    flash(msg + (f"; deleting {len(to_delete)} folder(s) from the share in the background." if to_delete else "."), "ok")
     return redirect(url_for("main.index"))
 
 
@@ -752,18 +857,30 @@ def version_new(gid):
     if request.method == "POST":
         f = request.form
         label = f.get("version", "").strip()
+        source = f.get("source", "upload")
         try:
             if not label:
                 raise UserError("Version label is required.")
-            if f.get("source") == "none":
+            if source == "upload":
+                upload_id = upload_from_form(f)
+                parent = prepare_destination(f)
+                get_db().commit()
+                job_id = jobs.enqueue("install", {
+                    "mode": "new_version", "gid": gid, "upload_id": upload_id, "parent": parent,
+                    "title": game["title"], "label": label, "notes": f.get("notes", "").strip()},
+                    f"Unpack {game['title']} v{label}")
+                return redirect(url_for("main.job_page", job_id=job_id))
+            if source != "folder":
                 raise UserError("Choose an upload or a folder.")
-            folder = materialize_source(f, game["title"], label)
-            insert_version(gid, label, folder, f.get("notes", "").strip())
+            folder = f.get("folder", "")
+            check_untracked_folder(folder)
+            vid = insert_version(gid, label, folder, f.get("notes", "").strip())
             if not game["cover"]:
                 cover = auto_cover(folder, game["title"])
                 if cover:
                     get_db().execute("UPDATE games SET cover=? WHERE id=?", (cover, gid))
             get_db().commit()
+            measure_later([vid])
         except (UserError, BadPath) as e:
             flash(str(e), "error")
             return render_template("version_new.html", game=game, form=f, folders=untracked_folders(),
@@ -803,25 +920,24 @@ def version_edit(vid):
 def version_delete(vid):
     v = get_version(vid)
     require_confirm()
-    deleted = delete_folder(v["folder"]) if request.form.get("delete_files") else False
+    delete_files = bool(request.form.get("delete_files")) and deletable(v["folder"])
     db = get_db()
     db.execute("DELETE FROM versions WHERE id=?", (vid,))
     sync_folder_categories(v["game_id"])
     invalidate_layout()
     db.commit()
-    flash(f"Removed version {v['label']}" + (" and deleted its folder." if deleted else "."), "ok")
+    if delete_files:
+        jobs.enqueue("delete", {"folders": [v["folder"]]}, f"Delete folder {v['folder']}")
+    flash(f"Removed version {v['label']}" + ("; deleting its folder in the background." if delete_files else "."), "ok")
     return redirect(url_for("main.game_detail", gid=v["game_id"]))
 
 
 @bp.post("/versions/<int:vid>/refresh")
 def version_refresh(vid):
     v = get_version(vid)
-    try:
-        size = storage.folder_size(storage.resolve_in(games_dir(), v["folder"]))
-    except BadPath:
-        abort(404)
-    get_db().execute("UPDATE versions SET size_bytes=? WHERE id=?", (size, vid))
+    get_db().execute("UPDATE versions SET size_bytes=-1 WHERE id=?", (vid,))
     get_db().commit()
+    measure_later([vid])
     return redirect(url_for("main.game_detail", gid=v["game_id"]))
 
 
@@ -914,86 +1030,68 @@ def upload_cancel(upload_id):
 
 # ------------------------------------------------------------------- scan
 
-@bp.route("/scan", methods=["GET", "POST"])
+@bp.get("/scan")
 def scan():
-    db = get_db()
-    existing = {r["title"].lower(): r for r in db.execute("SELECT id, title, platform FROM games")}
-    if request.method == "POST":
-        f = request.form
-        untracked = untracked_folders()
-        moved = {r["new"] for r in relink_suggestions(untracked)}
-        available = set(untracked) - moved   # moved folders are relinked, never imported as new
-        groups = {}
+    running = jobs.active(["discover", "rescan"])
+    last = jobs.latest(["discover", "rescan"])
+    if not running and (last is None or _age_seconds(last["finished_at"]) > cfg("SCAN_RESULT_MAX_AGE")):
+        jobs.enqueue("discover", {}, "Scan games share", exclusive=True)
+        running = jobs.active(["discover", "rescan"])
+        last = jobs.latest(["discover", "rescan"])
+    result = (last or {}).get("result") or {}
+    tracked = tracked_folders()
+    rows = [r for r in result.get("rows", []) if r["folder"] not in tracked]
+    relinks = []
+    for r in result.get("relinks", []):
         try:
-            count = min(max(int(f.get("count", "0")), 0), 10000)
-        except ValueError:
-            abort(400, "Bad scan form.")
-        seen = set()
-        for i in range(count):
-            if not f.get(f"include-{i}"):
-                continue
-            folder = f.get(f"folder-{i}", "")
-            if folder in seen:
-                continue
-            seen.add(folder)
-            title = f.get(f"title-{i}", "").strip()
-            label = f.get(f"label-{i}", "").strip()
-            platform = f.get(f"platform-{i}", "other")
-            if folder not in available or not title or not label:
-                continue
-            groups.setdefault(title.lower(), []).append(
-                (title, label, folder, platform if platform in PLATFORMS else "other"))
-        added_games = added_versions = 0
-        for key, rows in groups.items():
-            rows.sort(key=lambda r: storage.natural_key(r[1]))
-            ts = now()
-            if key in existing:
-                gid = existing[key]["id"]
-            else:
-                title, _, folder, platform = rows[0]
-                gid = db.execute(
-                    "INSERT INTO games(title,platform,description,cover,created_at,updated_at,status_id,status_changed_at) "
-                    "VALUES (?,?,'',NULL,?,?,?,?)",
-                    (title, platform, ts, ts, default_status_id(), ts)).lastrowid
-                added_games += 1
-            for _title, label, folder, _platform in rows:
-                path = storage.resolve_in(games_dir(), folder)
-                insert_version(gid, label, folder, "", iso_from_ts(os.stat(path).st_mtime))
-                added_versions += 1
-            if not db.execute("SELECT cover FROM games WHERE id=?", (gid,)).fetchone()["cover"]:
-                for _t, _l, folder, _p in reversed(rows):
-                    cover = auto_cover(folder, _t)
-                    if cover:
-                        db.execute("UPDATE games SET cover=? WHERE id=?", (cover, gid))
-                        break
-        db.commit()
-        flash(f"Imported {added_versions} version(s), {added_games} new game(s).", "ok")
-        return redirect(url_for("main.index"))
+            gone = not os.path.isdir(storage.resolve_in(games_dir(), r["old"]))
+        except BadPath:
+            gone = True
+        if gone and r["new"] not in tracked and get_db().execute(
+                "SELECT 1 FROM versions WHERE id=? AND folder=?", (r["vid"], r["old"])).fetchone():
+            relinks.append(r)
+    failed = jobs.latest(["discover", "rescan"], state="failed")
+    return render_template("scan.html", rows=rows, relinks=relinks, group_rows=result.get("group_rows", []),
+                           running=running[0] if running else None, last=last,
+                           failed=failed if failed and (not last or failed["finished_at"] > last["finished_at"]) else None)
 
-    untracked, groups = share_layout(fresh=True)
-    rules = folder_rules()
-    relinks = relink_suggestions(untracked)
-    moved = {r["new"] for r in relinks}
-    rows = []
-    for folder in untracked:
-        if folder in moved:
-            continue  # offered under "Moved folders" instead
-        path = os.path.join(games_dir(), folder)
-        title, label = storage.parse_folder_name(os.path.basename(folder))
-        match = existing.get(title.lower())
-        if not label:
-            label = datetime.fromtimestamp(os.stat(path).st_mtime, timezone.utc).strftime("%Y-%m-%d")
-        group, category = storage.location(folder)
-        rows.append({
-            "folder": folder, "title": match["title"] if match else title, "label": label,
-            "platform": match["platform"] if match else storage.detect_platform(path),
-            "existing": bool(match), "group": group,
-            "category": category.split("/", 1)[1] if category else None,
-            "rule": rules.get(folder),
-        })
-    rows.sort(key=lambda r: (r["title"].lower(), storage.natural_key(r["label"])))
-    return render_template("scan.html", rows=rows, relinks=relinks,
-                           group_rows=[{"path": p, "rule": rules.get(p)} for p in groups])
+
+def _age_seconds(iso):
+    try:
+        return (datetime.now(timezone.utc) - datetime.fromisoformat(iso)).total_seconds()
+    except (TypeError, ValueError):
+        return float("inf")
+
+
+@bp.post("/scan/rescan")
+def scan_rescan():
+    jobs.enqueue("discover", {}, "Scan games share", exclusive=True)
+    return redirect(url_for("main.scan"))
+
+
+@bp.post("/scan")
+def scan_import():
+    f = request.form
+    try:
+        count = min(max(int(f.get("count", "0")), 0), 10000)
+    except ValueError:
+        abort(400, "Bad scan form.")
+    rows, seen = [], set()
+    for i in range(count):
+        folder = f.get(f"folder-{i}", "")
+        if not f.get(f"include-{i}") or folder in seen:
+            continue
+        seen.add(folder)
+        title, label = f.get(f"title-{i}", "").strip(), f.get(f"label-{i}", "").strip()
+        platform = f.get(f"platform-{i}", "other")
+        if folder and title and label:
+            rows.append({"folder": folder, "title": title, "label": label,
+                         "platform": platform if platform in PLATFORMS else "other"})
+    if not rows:
+        flash("Nothing selected to import.", "error")
+        return redirect(url_for("main.scan"))
+    job_id = jobs.enqueue("import", {"rows": rows}, f"Import {len(rows)} folder{'s' if len(rows) != 1 else ''}")
+    return redirect(url_for("main.job_page", job_id=job_id))
 
 
 def relink_suggestions(untracked):
@@ -1018,26 +1116,33 @@ def relink_suggestions(untracked):
 def scan_relink():
     v = get_version(int(request.form.get("vid", "0") or 0))
     new = request.form.get("new", "")
-    if new not in untracked_folders():
+    try:
+        check_untracked_folder(new)
+    except UserError:
         abort(400, "That folder is not an untracked folder on the share.")
-    path = storage.resolve_no_links(games_dir(), new)
     db = get_db()
-    db.execute("UPDATE versions SET folder=?, size_bytes=? WHERE id=?", (new, storage.folder_size(path), v["id"]))
+    db.execute("UPDATE versions SET folder=?, size_bytes=-1 WHERE id=?", (new, v["id"]))
     sync_folder_categories(v["game_id"])
     invalidate_layout()
     db.commit()
+    measure_later([v["id"]])
     flash(f"Relinked version {v['label']}: {v['folder']} → {new}.", "ok")
     return redirect(url_for("main.scan"))
 
 
 @bp.post("/scan/rule")
 def scan_rule():
-    """Override automatic detection: 'game:<path>', 'group:<path>' or 'auto:<path>'."""
+    """Override automatic detection: 'game:<path>', 'group:<path>',
+    'games-inside:<path>' or 'auto:<path>'. Then rescan in the background."""
     kind, _, path = request.form.get("rule", "").partition(":")
-    untracked, groups = share_layout(fresh=True)
-    if kind not in ("game", "group", "auto") or path not in set(untracked) | set(groups):
-        abort(400, "Unknown folder or rule.")
-    storage.resolve_no_links(games_dir(), path)
+    if kind not in ("game", "group", "games-inside", "auto"):
+        abort(400, "Unknown rule.")
+    try:
+        _resolve_dir(path)
+    except UserError:
+        abort(400, "Unknown folder.")
+    if _in_tracked(path):
+        abort(400, "That folder is a tracked version.")
     db = get_db()
     if kind == "auto":
         db.execute("DELETE FROM folder_rules WHERE path=?", (path,))
@@ -1045,10 +1150,56 @@ def scan_rule():
         db.execute("INSERT OR REPLACE INTO folder_rules(path, kind) VALUES (?, ?)", (path, kind))
     db.commit()
     invalidate_layout()
+    jobs.enqueue("discover", {}, "Scan games share", exclusive=True)
     flash({"game": f"{path} is now treated as a game folder.",
            "group": f"{path} is now treated as a group folder; its subfolders are scanned.",
+           "games-inside": f"Every folder inside {path} is now treated as a game.",
            "auto": f"{path} uses automatic detection again."}[kind], "ok")
     return redirect(url_for("main.scan"))
+
+
+# ------------------------------------------------------------------- jobs
+
+@bp.get("/jobs")
+def jobs_list():
+    return render_template("jobs.html", jobs=jobs.recent(60))
+
+
+@bp.get("/jobs/<job_id>")
+def job_page(job_id):
+    j = jobs.get(job_id) or abort(404)
+    res = j.get("result") or {}
+    if j["state"] == "done" and res.get("redirect"):
+        if jobs.mark_seen(job_id) and res.get("message"):
+            flash(res["message"], "ok")
+        return redirect(res["redirect"])
+    return render_template("job.html", job=j)
+
+
+@bp.post("/jobs/<job_id>/cancel")
+def job_cancel(job_id):
+    jobs.get(job_id) or abort(404)
+    jobs.cancel(job_id)
+    nxt = request.form.get("next", "")
+    return redirect(nxt if nxt.startswith("/") and not nxt.startswith("//") else url_for("main.job_page", job_id=job_id))
+
+
+@bp.get("/api/jobs/<job_id>")
+def job_api(job_id):
+    j = jobs.get(job_id) or abort(404)
+    return jsonify({k: j[k] for k in ("id", "kind", "label", "state", "done", "total", "pct", "message",
+                                      "error", "active")})
+
+
+@bp.get("/api/jobs")
+def jobs_api():
+    return jsonify(active=[{k: j[k] for k in ("id", "label", "state", "pct", "message")} for j in jobs.active()])
+
+
+@bp.post("/artwork/missing")
+def artwork_missing():
+    job_id = jobs.enqueue("artwork", {}, "Find artwork for games without a cover", exclusive=True)
+    return redirect(url_for("main.job_page", job_id=job_id))
 
 
 @bp.get("/groups/<int:cid>/icon")
@@ -1166,6 +1317,8 @@ def version_label(label):
 
 
 def human_size(n):
+    if n is not None and n < 0:
+        return "measuring…"
     n = float(n or 0)
     for unit in ("B", "KB", "MB", "GB", "TB"):
         if n < 1024 or unit == "TB":
@@ -1185,7 +1338,7 @@ def register_filters(app):
     def inject_untracked():
         from flask import session
         if session.get("user") and request.endpoint not in ("static", "main.cover", "main.group_icon"):
-            return {"untracked": len(untracked_folders(fresh=False))}
+            return {"untracked": len(untracked_folders()), "active_jobs": len(jobs.active())}
         return {}
 
     @app.template_global()

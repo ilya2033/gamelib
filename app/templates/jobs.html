@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% from "macros.html" import job_progress, csrf %}
+{% block title %}Jobs{% endblock %}
+{% block body %}
+<main class="form-page wide">
+  <a class="back" href="{{ url_for('main.index') }}">← Library</a>
+  <h1>Jobs</h1>
+  <p class="muted">Scanning, importing, unpacking uploads, measuring and deleting folders run here in the background, one share job at a time. You can leave this page; jobs keep running.</p>
+  <div class="row">
+    <form method="post" action="{{ url_for('main.scan_rescan') }}">{{ csrf() }}<button class="btn small">Rescan share now</button></form>
+    <form method="post" action="{{ url_for('main.artwork_missing') }}">{{ csrf() }}<button class="btn small ghost">Find artwork for games without a cover</button></form>
+  </div>
+  {% if jobs %}
+  <ul class="job-list">
+    {% for j in jobs %}<li>{{ job_progress(j, request.path, compact=True) }}</li>{% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted">No jobs yet.</p>
+  {% endif %}
+</main>
+{% endblock %}
