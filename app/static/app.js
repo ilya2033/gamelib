@@ -30,6 +30,13 @@
     narrow.addEventListener("change", syncFilters);
   }
 
+  // ---- a file input that submits its form when a file is picked
+  document.querySelectorAll("input[type=file][data-autosubmit-file]").forEach((i) =>
+    i.addEventListener("change", () => {
+      if (i.files.length && (!i.dataset.ask || confirm(i.dataset.ask))) i.form.submit();
+      else i.value = "";
+    }));
+
   // ---- sort select submits on change
   document.querySelectorAll("form[data-autosubmit] select").forEach((s) =>
     s.addEventListener("change", () => s.form.submit()));
@@ -289,6 +296,40 @@
     return (i ? n.toFixed(1) : n) + " " + u[i];
   }
 
+  // ---- cover image inputs: preview, drag and drop, early check
+  const IMAGE_RE = /\.(png|jpe?g|webp|gif)$/i;
+  const isImage = (f) => IMAGE_RE.test(f.name) || /^image\/(png|jpeg|webp|gif)$/.test(f.type);
+  function setFile(inp, file) {
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    inp.files = dt.files;
+    inp.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+  document.querySelectorAll("input[data-cover-input]").forEach((inp) => {
+    const box = inp.closest("label") || inp.parentElement;
+    const preview = document.createElement("img");
+    preview.className = "cover-preview"; preview.alt = ""; preview.hidden = true;
+    const note = document.createElement("small");
+    note.className = "cover-note"; note.setAttribute("aria-live", "polite");
+    inp.after(preview, note);
+    inp.addEventListener("change", () => {
+      const f = inp.files[0];
+      if (preview.src) URL.revokeObjectURL(preview.src);
+      preview.hidden = true; note.textContent = "";
+      if (!f) return;
+      if (!isImage(f)) { note.textContent = `${f.name} isn't a PNG, JPEG, WebP or GIF image.`; inp.value = ""; return; }
+      preview.src = URL.createObjectURL(f); preview.hidden = false;
+      note.textContent = `${f.name} · ${Math.max(1, Math.round(f.size / 1024))} KB`;
+    });
+    ["dragenter", "dragover"].forEach((ev) => box.addEventListener(ev, (e) => { e.preventDefault(); box.classList.add("over"); }));
+    ["dragleave", "drop"].forEach((ev) => box.addEventListener(ev, () => box.classList.remove("over")));
+    box.addEventListener("drop", (e) => {
+      e.preventDefault();
+      const f = e.dataTransfer.files[0];
+      if (f) setFile(inp, f);
+    });
+  });
+
   document.querySelectorAll("[data-uploader]").forEach((up) => {
     const input = up.querySelector('input[type="file"]');
     const hidden = up.querySelector('input[name="upload_id"]');
@@ -303,6 +344,13 @@
 
     function start(file) {
       if (!file) return;
+      const coverInput = form?.querySelector("input[data-cover-input]");
+      if (coverInput && isImage(file)) {          // an image dropped here is meant as the cover
+        setFile(coverInput, file);
+        input.value = "";
+        status.textContent = `${file.name} is set as the cover image. For the game files, choose a .zip or .html.`;
+        return;
+      }
       if (!/\.(zip|html?)$/i.test(file.name)) {
         status.textContent = "Only .zip or .html files can be uploaded."; return;
       }
@@ -356,7 +404,12 @@
       const src = form.querySelector('input[name="source"]:checked')?.value || "upload";
       if (src !== "upload") return;
       if (xhr) { e.preventDefault(); status.textContent = "Wait for the upload to finish."; return; }
-      if (!hidden.value) { e.preventDefault(); status.textContent = "Choose a file to upload first."; return; }
+      if (!hidden.value) {
+        e.preventDefault();
+        status.textContent = "Choose the game's .zip or .html file here, or pick “Folder on share” or “None yet” above. (The cover image is separate.)";
+        up.scrollIntoView({ block: "center", behavior: "smooth" });
+        return;
+      }
       form.querySelectorAll('button[type="submit"]').forEach((b) => { b.disabled = true; b.textContent = "Unpacking…"; });
     });
     window.addEventListener("beforeunload", (e) => { if (xhr) { e.preventDefault(); e.returnValue = ""; } });

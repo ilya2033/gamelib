@@ -27,7 +27,7 @@
     <div class="cover-edit">
       {{ cover(game, 'thumb') }}
       <div class="stack">
-        <label>Replace logo / cover<input type="file" name="cover" accept="image/png,image/jpeg,image/webp,image/gif"></label>
+        <label>Replace logo / cover<input type="file" name="cover" accept="image/*,.png,.jpg,.jpeg,.webp,.gif" data-cover-input></label>
         {% if game.cover %}<label class="check"><input type="checkbox" name="remove_cover" value="1"> Remove current cover</label>{% endif %}
         <button class="btn small ghost" form="find-artwork" title="Cover image, engine icon, favicon or the icon inside the game's .exe">Find artwork in game folder</button>
         <a class="btn small ghost" href="{{ url_for('main.game_sgdb', gid=game.id) }}" title="Search SteamGridDB for box art (needs an API key in Settings)">Find cover on SteamGridDB</a>

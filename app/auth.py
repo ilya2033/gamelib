@@ -19,6 +19,8 @@ LOGIN_LIMIT = 64 * 1024        # login form
 SAFE_NEXT = re.compile(r"/(?![/\\])[^\s\\\x00-\x1f\x7f]*")
 SAFE_METHODS = ("GET", "HEAD", "OPTIONS")
 PUBLIC_ENDPOINTS = ("auth.login", "static", "main.healthz")
+# Signed play links: checked by the view itself, used from a sandboxed (cookie-less) frame
+TOKEN_ENDPOINTS = ("play.files", "play.boot", "play.save")
 
 _failures = {}
 _lock = threading.Lock()
@@ -79,7 +81,7 @@ def init_app(app):
 
     @app.before_request
     def guard():
-        if request.endpoint == "static":
+        if request.endpoint == "static" or request.endpoint in TOKEN_ENDPOINTS:
             return None
         is_upload = request.endpoint == "main.upload"
         public = request.endpoint in PUBLIC_ENDPOINTS
@@ -111,8 +113,9 @@ def init_app(app):
 
     @app.after_request
     def security_headers(resp):
-        resp.headers.setdefault("X-Frame-Options", "DENY")
-        resp.headers.setdefault("Content-Security-Policy", "frame-ancestors 'none'")
+        if not getattr(resp, "frameable", False):     # game files are shown in the player's frame
+            resp.headers.setdefault("X-Frame-Options", "DENY")
+            resp.headers.setdefault("Content-Security-Policy", "frame-ancestors 'none'")
         resp.headers.setdefault("X-Content-Type-Options", "nosniff")
         resp.headers.setdefault("Referrer-Policy", "same-origin")
         return resp

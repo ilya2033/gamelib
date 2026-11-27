@@ -12,7 +12,7 @@ from urllib.parse import parse_qsl, urlencode
 
 from flask import Response, abort, flash, redirect, render_template, request, url_for
 
-from . import jobs, steamgriddb as sgdb
+from . import jobs, play, steamgriddb as sgdb
 from .db import get_db
 from .jobs import handler
 from .storage import PLATFORMS
@@ -135,7 +135,8 @@ def export_data():
             "tags": v.game_tags(g["id"]),
             "categories": [c["name"] for c in v.manual_categories(g["id"])],
             "created_at": g["created_at"], "updated_at": g["updated_at"],
-            "versions": [{"folder": r["folder"], "label": r["label"], "notes": r["notes"], "added_at": r["added_at"]}
+            "versions": [{"folder": r["folder"], "label": r["label"], "notes": r["notes"], "added_at": r["added_at"],
+                          "entry": r["entry"]}
                          for r in db.execute("SELECT * FROM versions WHERE game_id=? ORDER BY added_at, id",
                                              (g["id"],))],
         })
@@ -241,6 +242,14 @@ def _apply_fields(gid, g):
         v.set_tags(gid, v.parse_tags(",".join(str(t) for t in g["tags"])))
     if isinstance(g.get("categories"), list):
         v.set_manual_categories(gid, v.parse_categories(",".join(str(c) for c in g["categories"])))
+    for x in g.get("versions") or []:           # chosen start files
+        if isinstance(x, dict) and isinstance(x.get("entry"), str) and x["entry"]:
+            try:
+                entry = play.clean_entry(x["entry"])
+            except play.EntryError:
+                continue
+            db.execute("UPDATE versions SET entry=? WHERE game_id=? AND folder=? AND entry IS NULL",
+                       (entry, gid, _str(x.get("folder"), 1000)))
 
 
 @bp.post("/tools/import")
@@ -513,6 +522,8 @@ def game_merge(gid):
     other = v.get_game(other_id)
     db = get_db()
     db.execute("UPDATE versions SET game_id=? WHERE game_id=?", (gid, other_id))
+    db.execute("INSERT OR IGNORE INTO saves(game_id, key, value, updated_at) "
+               "SELECT ?, key, value, updated_at FROM saves WHERE game_id=?", (gid, other_id))
     db.execute("INSERT OR IGNORE INTO game_tags(game_id, tag_id, source) "
                "SELECT ?, tag_id, source FROM game_tags WHERE game_id=?", (gid, other_id))
     db.execute("INSERT OR IGNORE INTO game_categories(game_id, category_id, source) "

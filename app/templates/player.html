@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>{{ v.title }} · GameLib</title>
+<link rel="icon" href="{{ url_for('static', filename='icon.svg') }}" type="image/svg+xml">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ APP_VERSION }}">
+</head>
+<body class="player">
+<header class="player-bar">
+  <a class="btn small ghost" href="{{ url_for('main.game_detail', gid=v.game_id) }}#saves">← Back</a>
+  <span class="player-title"><b>{{ v.title }}</b> <span class="muted">{{ v.label|vlabel }}</span></span>
+  <span class="player-save" id="save-state" title="Saves are kept on the server" aria-live="polite">{% if saves.n %}Saves loaded{% else %}No saves yet{% endif %}</span>
+  <button class="btn small ghost" id="reload" type="button" title="Restart the game">↻ Restart</button>
+  <button class="btn small" id="fullscreen" type="button">⛶ Full screen</button>
+</header>
+<iframe id="game" class="player-frame" src="{{ src }}" title="{{ v.title }}"
+        sandbox="allow-scripts allow-pointer-lock allow-forms allow-modals allow-popups allow-downloads allow-orientation-lock allow-presentation"
+        allow="fullscreen; autoplay; gamepad; clipboard-write" allowfullscreen referrerpolicy="no-referrer"></iframe>
+<script>
+(() => {
+  const frame = document.getElementById("game");
+  const state = document.getElementById("save-state");
+  const fmt = (iso) => iso ? new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "";
+  window.addEventListener("message", (e) => {
+    if (e.source !== frame.contentWindow || !e.data || e.data.gamelib !== "save") return;
+    const d = e.data;
+    state.dataset.state = d.state;
+    if (d.state === "saving") state.textContent = "Saving…";
+    else if (d.state === "saved") state.textContent = "Saved " + fmt(d.at);
+    else if (d.state === "error") { state.textContent = "Not saved, retrying"; state.title = String(d.at || ""); }
+  });
+  frame.addEventListener("load", () => frame.focus());
+  document.getElementById("fullscreen").addEventListener("click", () => {
+    (frame.requestFullscreen || frame.webkitRequestFullscreen || (() => {})).call(frame);
+    frame.focus();
+  });
+  document.getElementById("reload").addEventListener("click", () => {
+    if (confirm("Restart the game? Progress since its last save may be lost.")) frame.src = frame.src;
+  });
+})();
+</script>
+</body>
+</html>

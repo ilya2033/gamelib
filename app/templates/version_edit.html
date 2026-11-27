@@ -12,6 +12,15 @@
       <label>Version<input name="version" required maxlength="60" value="{{ v.label }}"></label>
       <label>Added<input type="date" name="added" value="{{ v.added_at|day }}"></label>
     </div>
+    <label>Start file
+      <select name="entry">
+        <option value="">Automatic{% if auto_entry %} ({{ auto_entry }}){% else %} (nothing found){% endif %}</option>
+        {% for e in entries %}<option value="{{ e }}" {{ 'selected' if e == v.entry }}>{{ e }}</option>{% endfor %}
+      </select>
+      <span class="hint">The file that starts the game. Pick an <b>.html</b> page to play it in the browser; an .exe is used for its icon and shown on the game page.</span>
+    </label>
+    {% if entry_missing %}<p class="flash error">The chosen start file “{{ v.entry }}” is no longer in the folder. Automatic is used until you pick another.</p>{% endif %}
+    {% if not entries %}<p class="muted small">No pages or programs found in this folder.</p>{% endif %}
     <label>Notes<textarea name="notes" rows="4">{{ v.notes }}</textarea></label>
     <div class="row end">
       <a class="btn ghost" href="{{ url_for('main.game_detail', gid=game.id) }}">Cancel</a>

@@ -17,7 +17,7 @@ from PIL import Image, UnidentifiedImageError
 import colorsys
 import io
 
-from . import artwork, jobs, storage
+from . import artwork, jobs, play, storage
 from .db import get_db
 from .storage import PLATFORMS, BadPath, UnsafeZip
 from .version import __version__
@@ -480,7 +480,7 @@ def auto_cover(folder, title=""):
     """Cover from the game folder: a cover image, an engine/HTML icon, or the
     icon inside the game's .exe. None if nothing usable is found."""
     try:
-        found = artwork.find_artwork(storage.resolve_in(games_dir(), folder), title)
+        found = artwork.find_artwork(storage.resolve_in(games_dir(), folder), title, play.entry_for_folder(folder))
     except BadPath:
         return None
     if not found:
@@ -793,12 +793,16 @@ def game_detail(gid):
         if d["exists"] and v["missing_since"]:
             get_db().execute("UPDATE versions SET missing_since=NULL WHERE id=?", (v["id"],))
             get_db().commit()
+        d["entry"], d["entry_auto"] = play.resolve_entry(v, game["title"]) if d["exists"] else (None, True)
+        d["entry_kind"] = play.kind_of(d["entry"])
         versions.append(d)
     group, cat = game_location(gid)
+    playable = next((d for d in versions if d["entry_kind"] == "html"), None)
     return render_template("game.html", game=game, versions=versions, tags=game_tags(gid),
                            status=status, statuses=all_statuses(), history=history,
                            group=group, cat_chain=category_chain(cat)[1:] if cat else [],
-                           manual_cats=manual_categories(gid))
+                           manual_cats=manual_categories(gid), playable=playable,
+                           saves=play.saves_summary(gid))
 
 
 @bp.post("/games/<int:gid>/status")
@@ -1022,16 +1026,42 @@ def version_edit(vid):
             added = day + "T12:00:00+00:00"
         if not label:
             flash("Version label is required.", "error")
-            return render_template("version_edit.html", v=v, game=game), 400
+            return render_template("version_edit.html", **version_form(v, game)), 400
+        entry = None
+        if f.get("entry", ""):
+            try:
+                entry = play.clean_entry(f["entry"])
+                base = play.folder_path(v["folder"])
+            except (play.EntryError, BadPath):
+                base = None
+            if base is None or not play.entry_file(base, entry):
+                flash("That start file isn't in the version folder.", "error")
+                return render_template("version_edit.html", **version_form(v, game)), 400
         db = get_db()
-        db.execute("UPDATE versions SET label=?, notes=?, added_at=? WHERE id=?",
-                   (label, f.get("notes", "").strip(), added, vid))
+        db.execute("UPDATE versions SET label=?, notes=?, added_at=?, entry=? WHERE id=?",
+                   (label, f.get("notes", "").strip(), added, entry, vid))
         db.execute("UPDATE games SET updated_at=max(updated_at, ?) WHERE id=?", (added, game["id"]))
         sync_folder_categories(game["id"])
         db.commit()
         flash("Version saved.", "ok")
         return redirect(url_for("main.game_detail", gid=game["id"]))
-    return render_template("version_edit.html", v=v, game=game)
+    return render_template("version_edit.html", **version_form(v, game))
+
+
+def version_form(v, game):
+    """Template values for Edit version, with the files that can be started."""
+    files, auto = [], None
+    try:
+        base = play.folder_path(v["folder"])
+    except BadPath:
+        base = None
+    if base and os.path.isdir(base):
+        files = play.candidates(base)
+        auto = play.auto_entry(base, game["title"])
+        if v["entry"] and v["entry"] not in files and play.entry_file(base, v["entry"]):
+            files.insert(0, v["entry"])
+    return {"v": v, "game": game, "entries": files, "auto_entry": auto,
+            "entry_missing": bool(v["entry"]) and v["entry"] not in files}
 
 
 @bp.post("/versions/<int:vid>/delete")

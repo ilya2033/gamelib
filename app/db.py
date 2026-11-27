@@ -167,6 +167,17 @@ MIGRATIONS = [
         value TEXT NOT NULL
     );
     """,
+    # v6: chosen start file per version, browser-game saves (localStorage, per game)
+    """
+    ALTER TABLE versions ADD COLUMN entry TEXT;   -- file to start, relative to the folder; NULL = automatic
+    CREATE TABLE saves (
+        game_id    INTEGER NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+        key        TEXT NOT NULL,
+        value      TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (game_id, key)
+    );
+    """,
 ]
 SCHEMA_VERSION = len(MIGRATIONS)
 KEEP_MANUAL = 10   # manual backups kept

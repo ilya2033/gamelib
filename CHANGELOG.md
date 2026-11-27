@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.5.0 (2026-11-27)
+
+Database schema v6: on first start, a `pre-v6` backup is written to `/data/backups`, then the database is migrated.
+
+- **Play HTML games in the browser.** **▶ Play** on the game page (and on each version) opens the game full-window in GameLib, with a full-screen button. It works for games whose start file is an `.html` page: exported HTML5 games, RPG Maker MV/MZ, Twine, Construct, Phaser and so on. Pre-compressed builds (`.wasm.br`, `.js.gz`) are served with the right headers.
+- **Saves stay on the server.** The game's `localStorage` is replaced by one stored in GameLib's database, per game. Saves follow you to any browser or device, carry over to new versions, are included in database backups, and survive clearing the browser. The player shows *Saving… / Saved*. The game page has a **Browser saves** panel to download, restore or delete them. Merging duplicates keeps both games' saves.
+- **Sandboxed.** A game runs in a sandboxed frame on its own opaque origin, so its scripts can't read GameLib's cookies, pages or API. Its files are served through a signed link that is valid for one version and expires after 1–2 days.
+- **Choose the start file.** *Edit version* has a **Start file** list: `.html` pages and programs (`.exe`, `.sh`, `.x86_64`, `.jar`, `.apk`...) found in the folder, or *Automatic*. Automatic picks `index.html` (also in `www/`, `html/` and similar), a lone page, or the game's `.exe`. The game page shows each version's start file. A chosen `.exe` or page is also used for artwork lookup. The start file is included in export/import.
+- **Fix: PNG covers on Add game.** The cover picker now accepts images by extension as well as by type, so files such as `COVER.PNG`, or ones the system has no image type for, can be chosen. An image dropped or picked in the game-files box is put into the cover field instead of being refused. A preview shows the chosen cover. Submitting with *Upload* selected but no game file now says that the game's .zip/.html is missing, not the cover. The same picker is used on Edit game.
+- Limitation: games that save only to IndexedDB (most Unity WebGL and Godot exports) run, but their saves last only until the tab is closed. Libraries that can fall back to `localStorage` (such as localForage) do so and are saved.
+
 ## 1.4.0 (2026-11-27)
 
 Database schema v5: on first start, a `pre-v5` backup is written to `/data/backups`, then the database is migrated.

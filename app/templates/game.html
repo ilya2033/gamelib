@@ -44,7 +44,8 @@
           <button class="btn small ghost fav-btn {{ 'on' if game.favorite }}" name="favorite" value="{{ '' if game.favorite else '1' }}" aria-pressed="{{ 'true' if game.favorite else 'false' }}">{{ '♥ Favourite' if game.favorite else '♡ Favourite' }}</button>
         </form>
         <div class="row">
-          {% if versions and versions[0].exists %}<a class="btn primary" href="{{ url_for('main.version_download', vid=versions[0].id) }}">⬇ Download latest</a>{% endif %}
+          {% if playable %}<a class="btn primary" href="{{ url_for('play.player', vid=playable.id) }}">▶ Play{% if playable.id != versions[0].id %} {{ playable.label|vlabel }}{% endif %}</a>{% endif %}
+          {% if versions and versions[0].exists %}<a class="btn {{ '' if playable else 'primary' }}" href="{{ url_for('main.version_download', vid=versions[0].id) }}">⬇ Download latest</a>{% endif %}
           <a class="btn" href="{{ url_for('main.version_new', gid=game.id) }}">＋ New version</a>
           <a class="btn ghost" href="{{ url_for('main.game_edit', gid=game.id) }}">Edit</a>
           <button class="btn ghost danger-text" data-open="del-game">Delete</button>
@@ -83,8 +84,10 @@
             <span class="v-date">{{ v.added_at|day }}</span>
           </div>
           <div class="v-path" title="{{ v.folder }}">📁 {{ v.folder }} · {{ v.size_bytes|size }}</div>
+          {% if v.entry %}<div class="v-path v-entry" title="Start file{{ ' (picked automatically)' if v.entry_auto }}">{{ '🌐' if v.entry_kind == 'html' else '⚙' }} {{ v.entry }}{% if v.entry_auto %} <span class="muted small">· auto</span>{% endif %}</div>{% endif %}
           {% if v.notes %}<div class="v-notes">{{ v.notes }}</div>{% endif %}
           <div class="v-actions">
+            {% if v.entry_kind == 'html' %}<a class="btn small primary" href="{{ url_for('play.player', vid=v.id) }}">▶ Play</a>{% endif %}
             {% if v.exists %}<a class="btn small" href="{{ url_for('main.version_download', vid=v.id) }}">⬇ Download</a>{% endif %}
             <a class="btn small ghost" href="{{ url_for('main.version_edit', vid=v.id) }}">Edit</a>
             {% if v.exists %}
@@ -103,6 +106,31 @@
       <p class="muted">No versions yet. <a href="{{ url_for('main.version_new', gid=game.id) }}">Add the first one</a>.</p>
       {% endif %}
     </section>
+
+    {% if playable or saves.n %}
+    <section class="panel" id="saves">
+      <h2>Browser saves <span class="count">{{ saves.n }}</span></h2>
+      {% if saves.n %}
+      <p class="muted">{{ saves.n }} {{ 'entry' if saves.n == 1 else 'entries' }} · {{ saves.bytes|size }} · last saved <span title="{{ saves.at }}">{{ saves.at|when }}</span>.
+        Kept on the server for this game, shared by all its versions and every browser.</p>
+      {% else %}
+      <p class="muted">Nothing saved yet. When you play in the browser, the game's saves are kept here on the server, so they follow you to any browser.</p>
+      {% endif %}
+      <div class="v-actions">
+        {% if saves.n %}<a class="btn small" href="{{ url_for('play.saves_download', gid=game.id) }}">⬇ Download saves</a>{% endif %}
+        <form method="post" action="{{ url_for('play.saves_import', gid=game.id) }}" enctype="multipart/form-data" class="saves-restore">
+          {{ csrf() }}
+          <label class="btn small ghost">Restore from file…<input type="file" name="file" accept=".json,application/json" hidden data-autosubmit-file data-ask="Restore saves from this file? They replace the saves stored now."></label>
+        </form>
+        {% if saves.n %}
+        <form method="post" action="{{ url_for('play.saves_delete', gid=game.id) }}">
+          {{ csrf() }}<input type="hidden" name="confirm" value="yes">
+          <button class="btn small ghost danger-text" data-confirm="Delete all browser saves for {{ game.title }}? Download them first if you may want them back.">Delete saves</button>
+        </form>
+        {% endif %}
+      </div>
+    </section>
+    {% endif %}
   </div>
   {{ confirm_dialog('del-game', url_for('main.game_delete', gid=game.id),
        'Delete ' ~ game.title ~ '?',

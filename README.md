@@ -12,6 +12,8 @@ downloads. One Flask app, SQLite, one container, no external services.
 - **Versions:** one folder on the share per version, each with its own label, added date, notes and size. Old versions are kept.
 - **Scan:** finds untracked folders on the share, suggests a title, version and platform for each, and imports only after you confirm.
 - **Upload:** a `.zip` or a single `.html` is streamed to disk with a progress bar, then unpacked into a new folder on the share. Multi-GB files work.
+- **Play in the browser:** HTML games (HTML5 exports, RPG Maker MV/MZ, Twine, Construct...) run full-window inside GameLib, sandboxed, and **their saves are kept on the server**, so they follow you to every browser and device.
+- **Start file:** pick which file starts each version (an `.html` page, `.exe`, `.sh`...), or let GameLib find it.
 - **Download:** any version as a zip, built while it streams (nothing is stored twice). A single-file version downloads as the file itself.
 - **Edit and delete:** edit details, replace the cover, delete a version or a game. Deleting asks for confirmation and keeps the files unless you tick "also delete files".
 - **Works on phone and desktop.**
@@ -65,7 +67,7 @@ downloads. One Flask app, SQLite, one container, no external services.
   - It never imports anything by itself.
 - **Spun-down disks:** pages never walk the share. The folder list used by pages is cached and refreshed in the background.
 - **Artwork rescan (on demand only):** *Jobs → Find artwork in game folders* looks through the whole library for a cover image, engine icon, favicon or `.exe` icon. Pick the scope: games without a cover, also refresh covers that were found automatically, or every game including covers you uploaded (needs an extra tick). A game keeps its cover when nothing is found. It never runs on a schedule and isn't resumed after a restart.
-- **Your own data per game:** a 1–5 star rating, a ♥ favourite, hours played (typed in; GameLib doesn't launch games) and private notes. Set them on the game page or in *Edit*, filter the library by them, and sort by rating or hours.
+- **Your own data per game:** a 1–5 star rating, a ♥ favourite, hours played (typed in; GameLib doesn't track playtime) and private notes. Set them on the game page or in *Edit*, filter the library by them, and sort by rating or hours.
 - **Saved views:** any combination of filters can be saved under a name in the sidebar, for example "Pending + Windows + no cover".
 - **Bulk edit:** **Select** in the library toolbar, tick games (or *All shown*), then set status, rating or favourite, or add/remove a tag or category for all of them at once.
 - **Missing folders:** every rescan marks versions whose folder is gone. They show with ⚠ in the library and are listed under *Tools → Missing folders*, where you can **Relink** a moved folder or **Forget** a deleted one (the game, its status and notes stay). If the share looks unmounted (empty or unreadable), nothing is marked.
@@ -73,6 +75,10 @@ downloads. One Flask app, SQLite, one container, no external services.
 - **SteamGridDB covers (optional):** with a free API key (*Settings → Integrations* or the `STEAMGRIDDB_API_KEY` variable), *Find cover on SteamGridDB* on a game's *Edit* page lets you pick box art, and *Tools* can fetch covers for every game without one. Only runs when you click; game titles are sent to SteamGridDB.
 - **Duplicates:** *Tools → Duplicates* lists games with the same title (ignoring case, punctuation, a leading "The" and bracketed parts) and merges two entries into one.
 - **Old versions:** *Tools → Old versions* lists every version except each game's newest, biggest first, and removes the ones you pick, optionally deleting their folders. The newest version is never offered.
+- **Playing HTML games:** **▶ Play** appears for versions whose start file is an `.html` page. The game opens in a sandboxed frame with a full-screen button. It runs on its own opaque origin, so it can't read GameLib's cookies or pages, and its files are served through a signed link that expires after 1–2 days.
+  - **Saves:** the game's `localStorage` is stored in GameLib's database per game and shared by all its versions. That makes saves part of the database backups, independent of the browser, and editable on the game page under **Browser saves** (download, restore from file, delete).
+  - **Not saved:** games that save only to IndexedDB (most Unity WebGL and Godot exports) still run, but their progress is lost when the tab closes.
+- **Start file:** *Edit version → Start file* lists the pages and programs in the folder. *Automatic* uses `index.html` (also inside `www/`, `html/`, `web/`...), a single page, or the game's `.exe`. The game page shows it next to each version, and artwork lookup uses it.
 - **Storage:** *Tools → Storage* shows size by status, group and platform, the largest games and free space on the share.
 
 ## Install on Unraid

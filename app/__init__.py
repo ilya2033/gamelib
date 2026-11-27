@@ -4,7 +4,7 @@ from datetime import timedelta
 
 from flask import Flask, jsonify, render_template, request
 
-from . import auth, db, jobs, storage, tasks, tools, views  # noqa: F401  (tasks/tools register handlers and routes)
+from . import auth, db, jobs, play, storage, tasks, tools, views  # noqa: F401  (tasks/tools register handlers and routes)
 from .version import __version__
 
 
@@ -64,6 +64,7 @@ def create_app(config=None):
     db.init_app(app)
     auth.init_app(app)
     app.register_blueprint(views.bp)
+    app.register_blueprint(play.bp)
     views.register_filters(app)
     app.jinja_env.globals["APP_VERSION"] = __version__
     app.config["APP_VERSION"] = __version__

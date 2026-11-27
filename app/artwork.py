@@ -4,6 +4,7 @@ favicons, and the application icon inside Windows .exe files.
 The .exe reader is a minimal PE resource parser (stdlib only). It seeks to
 the few structures it needs, so it is safe to point at very large files."""
 import os
+import posixpath
 import re
 import struct
 
@@ -184,9 +185,11 @@ def _inside(folder, rel):
     return p if os.path.isfile(p) else None
 
 
-def html_favicon(folder):
-    """Icon referenced by <link rel="icon"> in index.html (relative paths only)."""
-    index = os.path.join(folder, "index.html")
+def html_favicon(folder, page="index.html"):
+    """Icon referenced by <link rel="icon"> in a page (relative paths only)."""
+    index = _inside(folder, page)
+    if not index:
+        return None
     try:
         with open(index, "r", encoding="utf-8", errors="replace") as f:
             head = f.read(65536)
@@ -195,13 +198,14 @@ def html_favicon(folder):
     for tag in _LINK_ICON.findall(head):
         m = _HREF.search(tag)
         if m and not re.match(r"^(?:[a-z]+:|//)", m.group(1), re.I):
-            p = _inside(folder, m.group(1).split("?")[0].split("#")[0].lstrip("./") or "x")
+            href = m.group(1).split("?")[0].split("#")[0]
+            p = _inside(folder, posixpath.normpath(posixpath.join(posixpath.dirname(page), href)).lstrip("/") or "x")
             if p:
                 return p
     return None
 
 
-def find_artwork(folder, title=""):
+def find_artwork(folder, title="", entry=None):
     """Best artwork for a game folder, as one of:
     ('cover', path) - an image meant as a cover/logo, use as is
     ('icon', path)  - a small square icon image, render onto a card
@@ -214,10 +218,12 @@ def find_artwork(folder, title=""):
         p = _inside(folder, rel)
         if p:
             return "icon", p
-    fav = html_favicon(folder)
+    entry = (entry or "").replace("\\", "/")
+    fav = html_favicon(folder, entry if entry.lower().endswith((".html", ".htm")) else "index.html")
     if fav:
         return "icon", fav
-    exe = pick_exe(folder, title)
+    exe = _inside(folder, entry) if entry.lower().endswith(".exe") else None
+    exe = exe or pick_exe(folder, title)
     if exe:
         icon = exe_icon(exe)
         if icon:
