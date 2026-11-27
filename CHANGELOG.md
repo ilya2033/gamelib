@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (1.4.0)
+## 1.4.0 (2026-11-27)
 
 Database schema v5: on first start, a `pre-v5` backup is written to `/data/backups`, then the database is migrated.
 
