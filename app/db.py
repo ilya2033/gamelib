@@ -178,7 +178,13 @@ MIGRATIONS = [
         PRIMARY KEY (game_id, key)
     );
     """,
+    # v7: hand-picked version order (NULL = by date, above the ordered ones); the top one is the default
+    """
+    ALTER TABLE versions ADD COLUMN position INTEGER;
+    """,
 ]
+# How a game's versions are listed everywhere; the first one is its default (Play, Download, "latest").
+VERSION_ORDER = "(position IS NULL) DESC, position, added_at DESC, id DESC"
 SCHEMA_VERSION = len(MIGRATIONS)
 KEEP_MANUAL = 10   # manual backups kept
 KEEP_PRE = 5       # pre-migration backups kept (never removed by manual backups)

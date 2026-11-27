@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.7.0 (2026-11-27)
+
+Database schema v7: on first start, a `pre-v7` backup is written to `/data/backups`, then the database is migrated.
+
+- **Version order.** Drag a version by its ⠿ handle on the game page (mouse or touch), or focus the handle and press ↑/↓. The order is saved at once, and **the top version is the game's default**: ▶ Play, ⬇ Download, the version shown in the library and in search, artwork lookup, the folder that decides group/category, and the version *Tools → Old versions* always keeps. The badge reads *default* instead of *latest* while you have your own order. Versions added later go on top, and **Newest first** goes back to date order. The order is kept in export/import.
+- **Name and version from the upload.** After a `.zip` or `.html` upload finishes, empty *Title* and *Version* fields (and a *Platform* you haven't changed) are filled from the file itself, and the upload box says where each came from. Leave them empty and press *Add game*: the same guess is used on the server. *New version* does the same for the version.
+  - Read from what the game declares: the version resource of its `.exe` (ProductName / ProductVersion), macOS `Info.plist`, Unity `app.info`, Ren'Py `options.rpy`, NW.js / Electron / RPG Maker `package.json`, the start page's `<title>`. Then from the archive's single top folder and its file name (`Hollow_Knight_v1.5.78-win64.zip` → *Hollow Knight*, *1.5.78*).
+  - A version in the file name wins over the one inside the game. Engine defaults ("RPG Maker MV", "Unity WebGL Player", `1.0.0` in package.json) are ignored, and Windows' padded `1.2.0.0` becomes `1.2.0`.
+  - Only the zip's directory and a few small files are read, with size caps; nothing is unpacked for this.
+
 ## 1.6.0 (2026-11-27)
 
 - **Search with autocomplete.** Typing in the top-bar search shows matching games as you type: cover, status, platform and latest version, with the typed letters highlighted. Below them are matching tags, groups and categories to filter by. Use ↑/↓ and Enter, or the mouse; Esc closes the list; Enter with nothing highlighted searches as before. Press **/** anywhere to jump to the search box.

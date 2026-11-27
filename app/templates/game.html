@@ -19,7 +19,7 @@
         <div class="facts">
           <span class="plat p-{{ game.platform }}">{{ game.platform|platform }}</span>
           {% if status %}<span class="status-chip" style="--c: {{ status.color }}"><span class="dot"></span>{{ status.label }}</span>{% endif %}
-          {% if versions %}<span>Latest <b>{{ versions[0].label|vlabel }}</b></span>{% endif %}
+          {% if versions %}<span>{{ 'Default' if manual_order else 'Latest' }} <b>{{ versions[0].label|vlabel }}</b></span>{% endif %}
           {% if game.hours %}<span>{{ game.hours|hours }} played</span>{% endif %}
           <span>Added {{ game.created_at|day }}</span>
           <span>Updated {{ game.updated_at|day }}</span>
@@ -45,7 +45,7 @@
         </form>
         <div class="row">
           {% if playable %}<a class="btn primary" href="{{ url_for('play.player', vid=playable.id) }}">▶ Play{% if playable.id != versions[0].id %} {{ playable.label|vlabel }}{% endif %}</a>{% endif %}
-          {% if versions and versions[0].exists %}<a class="btn {{ '' if playable else 'primary' }}" href="{{ url_for('main.version_download', vid=versions[0].id) }}">⬇ Download latest</a>{% endif %}
+          {% if versions and versions[0].exists %}<a class="btn {{ '' if playable else 'primary' }}" href="{{ url_for('main.version_download', vid=versions[0].id) }}">⬇ Download {{ versions[0].label|vlabel }}</a>{% endif %}
           <a class="btn" href="{{ url_for('main.version_new', gid=game.id) }}">＋ New version</a>
           <a class="btn ghost" href="{{ url_for('main.game_edit', gid=game.id) }}">Edit</a>
           <button class="btn ghost danger-text" data-open="del-game">Delete</button>
@@ -72,14 +72,18 @@
     {% endif %}
 
     <section class="panel">
-      <h2>Versions <span class="count">{{ versions|length }}</span></h2>
+      <h2>Versions <span class="count">{{ versions|length }}</span>
+        {% if versions|length > 1 %}<span class="muted small v-order-hint">{{ 'Your order; the top one is the default.' if manual_order else 'Drag ⠿ to reorder; the top one is the default.' }}</span>
+        {% if manual_order %}<form method="post" action="{{ url_for('main.versions_order', gid=game.id) }}" class="v-order-reset">{{ csrf() }}<input type="hidden" name="reset" value="1"><button class="btn small ghost" title="Put the newest version on top again">Newest first</button></form>{% endif %}{% endif %}
+      </h2>
       {% if versions %}
-      <ul class="versions">
+      <ul class="versions" {% if versions|length > 1 %}data-sortable data-order-url="{{ url_for('main.versions_order', gid=game.id) }}"{% endif %}>
         {% for v in versions %}
-        <li class="version {{ 'missing' if not v.exists }}">
+        <li class="version {{ 'missing' if not v.exists }}" data-vid="{{ v.id }}">
           <div class="v-head">
+            {% if versions|length > 1 %}<button type="button" class="drag" title="Drag to reorder (or focus and use ↑ ↓)" aria-label="Move version {{ v.label|vlabel }}: drag, or press up and down arrows">⠿</button>{% endif %}
             <span class="v-label">{{ v.label|vlabel }}</span>
-            {% if loop.first %}<span class="badge ok">latest</span>{% endif %}
+            {% if loop.first %}<span class="badge ok">{{ 'default' if manual_order else 'latest' }}</span>{% endif %}
             {% if not v.exists %}<a class="badge warn" href="{{ url_for('main.tools_missing') }}" title="Folder not found on the games share: relink or forget it">missing</a>{% endif %}
             <span class="v-date">{{ v.added_at|day }}</span>
           </div>

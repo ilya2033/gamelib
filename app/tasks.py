@@ -319,7 +319,7 @@ def run_artwork(ctx):
     for i, g in enumerate(games):
         ctx.check_cancel()
         ctx.progress(i, len(games), f"Looking in {g['title']}")
-        for ver in db.execute("SELECT folder FROM versions WHERE game_id=? ORDER BY added_at DESC, id DESC",
+        for ver in db.execute("SELECT folder FROM versions WHERE game_id=? ORDER BY (position IS NULL) DESC, position, added_at DESC, id DESC",
                               (g["id"],)).fetchall():
             cover = v.auto_cover(ver["folder"], g["title"])
             if cover:

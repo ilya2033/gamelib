@@ -136,7 +136,7 @@ def export_data():
             "categories": [c["name"] for c in v.manual_categories(g["id"])],
             "created_at": g["created_at"], "updated_at": g["updated_at"],
             "versions": [{"folder": r["folder"], "label": r["label"], "notes": r["notes"], "added_at": r["added_at"],
-                          "entry": r["entry"]}
+                          "entry": r["entry"], "position": r["position"]}
                          for r in db.execute("SELECT * FROM versions WHERE game_id=? ORDER BY added_at, id",
                                              (g["id"],))],
         })
@@ -242,6 +242,10 @@ def _apply_fields(gid, g):
         v.set_tags(gid, v.parse_tags(",".join(str(t) for t in g["tags"])))
     if isinstance(g.get("categories"), list):
         v.set_manual_categories(gid, v.parse_categories(",".join(str(c) for c in g["categories"])))
+    for x in g.get("versions") or []:           # hand-picked order
+        if isinstance(x, dict) and isinstance(x.get("position"), int) and 0 <= x["position"] < 100000:
+            db.execute("UPDATE versions SET position=? WHERE game_id=? AND folder=? AND position IS NULL",
+                       (x["position"], gid, _str(x.get("folder"), 1000)))
     for x in g.get("versions") or []:           # chosen start files
         if isinstance(x, dict) and isinstance(x.get("entry"), str) and x["entry"]:
             try:
@@ -552,12 +556,12 @@ def game_merge(gid):
 # ------------------------------------------------------------ old versions
 
 def old_versions():
-    """Every version except each game's newest, biggest first per game."""
+    """Every version except each game's default (top) one, biggest first per game."""
     out = []
     db = get_db()
     for g in db.execute("SELECT g.id, g.title FROM games g WHERE (SELECT COUNT(*) FROM versions "
                         "WHERE game_id=g.id) > 1 ORDER BY g.title COLLATE NOCASE"):
-        vers = db.execute("SELECT * FROM versions WHERE game_id=? ORDER BY added_at DESC, id DESC",
+        vers = db.execute("SELECT * FROM versions WHERE game_id=? ORDER BY (position IS NULL) DESC, position, added_at DESC, id DESC",
                           (g["id"],)).fetchall()
         olds = [dict(r) for r in vers[1:]]
         out.append({"id": g["id"], "title": g["title"], "latest": vers[0], "old": olds,
@@ -585,11 +589,11 @@ def tools_versions_delete():
     db = get_db()
     latest = {r["game_id"]: r["id"] for r in db.execute(
         "SELECT game_id, id FROM versions v WHERE id = (SELECT id FROM versions WHERE game_id=v.game_id "
-        "ORDER BY added_at DESC, id DESC LIMIT 1)")}
+        "ORDER BY (position IS NULL) DESC, position, added_at DESC, id DESC LIMIT 1)")}
     folders, removed, games = [], 0, set()
     for vid in ids:
         r = db.execute("SELECT * FROM versions WHERE id=?", (vid,)).fetchone()
-        if r is None or latest.get(r["game_id"]) == vid:      # never the newest one
+        if r is None or latest.get(r["game_id"]) == vid:      # never the default one
             continue
         if delete_files and v.deletable(r["folder"]):
             folders.append(r["folder"])

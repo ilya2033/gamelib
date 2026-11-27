@@ -10,9 +10,9 @@ downloads. One Flask app, SQLite, one container, no external services.
 - **Groups and categories:** subfolders on the share become groups (tabs) and categories (a sidebar tree), and you can add your own categories.
 - **Games:** title, platform (Windows, Linux, macOS, HTML, Unity WebGL, Other), description, tags and a cover/logo.
 - **Statuses:** Pending, On hold, Completed and Abandoned, plus any custom ones you add. Each game has one status, with a history of changes, and you can filter and sort by status. Manage them in **Settings → Statuses**.
-- **Versions:** one folder on the share per version, each with its own label, added date, notes and size. Old versions are kept.
+- **Versions:** one folder on the share per version, each with its own label, added date, notes and size. Old versions are kept. Drag versions into any order; the top one is the default for Play and Download (newest first until you reorder).
 - **Scan:** finds untracked folders on the share, suggests a title, version and platform for each, and imports only after you confirm.
-- **Upload:** a `.zip` or a single `.html` is streamed to disk with a progress bar, then unpacked into a new folder on the share. Multi-GB files work.
+- **Upload:** a `.zip` or a single `.html` is streamed to disk with a progress bar, then unpacked into a new folder on the share. Multi-GB files work. Title, version and platform are filled in from the file when you leave them empty (from the game's `.exe` version info, `Info.plist`, Unity/Ren'Py/RPG Maker metadata, the page title, or the file name).
 - **Play in the browser:** HTML games (HTML5 exports, RPG Maker MV/MZ, Twine, Construct...) run full-window inside GameLib, sandboxed, and **their saves are kept on the server**, so they follow you to every browser and device.
 - **Start file:** pick which file starts each version (an `.html` page, `.exe`, `.sh`...), or let GameLib find it.
 - **Download:** any version as a zip, built while it streams (nothing is stored twice). A single-file version downloads as the file itself.

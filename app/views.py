@@ -17,7 +17,7 @@ from PIL import Image, UnidentifiedImageError
 import colorsys
 import io
 
-from . import artwork, jobs, play, storage
+from . import archive_meta, artwork, jobs, play, storage
 from .db import get_db
 from .storage import PLATFORMS, BadPath, UnsafeZip
 from .version import __version__
@@ -214,7 +214,7 @@ def sync_folder_categories(gid):
     """Group/category of a game = location of its latest version on the share."""
     db = get_db()
     db.execute("DELETE FROM game_categories WHERE game_id=? AND source='folder'", (gid,))
-    latest = db.execute("SELECT folder FROM versions WHERE game_id=? ORDER BY added_at DESC, id DESC LIMIT 1",
+    latest = db.execute("SELECT folder FROM versions WHERE game_id=? ORDER BY (position IS NULL) DESC, position, added_at DESC, id DESC LIMIT 1",
                         (gid,)).fetchone()
     if latest:
         group, category = storage.location(latest["folder"])
@@ -517,6 +517,25 @@ def upload_from_form(form):
     return upload_id
 
 
+def upload_meta(upload_id):
+    """Name, version and platform guessed from an upload (cached next to it)."""
+    data_path, meta_path = upload_paths(upload_id)
+    try:
+        with open(meta_path) as f:
+            meta = json.load(f)
+    except (OSError, ValueError):
+        return None
+    if "guess" not in meta:
+        meta["guess"] = archive_meta.inspect_upload(data_path, meta.get("filename", ""))
+        try:
+            with open(meta_path + ".tmp", "w") as f:
+                json.dump(meta, f)
+            os.replace(meta_path + ".tmp", meta_path)
+        except OSError:
+            pass
+    return meta["guess"]
+
+
 def prepare_destination(form):
     """Validate the destination and create any new subfolder (cheap mkdirs)."""
     parent = destination_from_form(form)
@@ -547,7 +566,7 @@ def destination_from_form(form):
 
 def default_destination(gid):
     """New versions go next to the game's latest version by default."""
-    row = get_db().execute("SELECT folder FROM versions WHERE game_id=? ORDER BY added_at DESC, id DESC LIMIT 1",
+    row = get_db().execute("SELECT folder FROM versions WHERE game_id=? ORDER BY (position IS NULL) DESC, position, added_at DESC, id DESC LIMIT 1",
                            (gid,)).fetchone()
     parent = row["folder"].rpartition("/")[0] if row else ""
     if not parent:
@@ -722,7 +741,7 @@ def index():
         args.append(int(category))
     sql = (
         "SELECT g.*, s.key AS status_key, s.label AS status_label, s.color AS status_color, "
-        "(SELECT label FROM versions v WHERE v.game_id=g.id ORDER BY v.added_at DESC, v.id DESC LIMIT 1) AS latest, "
+        "(SELECT label FROM versions v WHERE v.game_id=g.id ORDER BY (position IS NULL) DESC, position, added_at DESC, id DESC LIMIT 1) AS latest, "
         "(SELECT COUNT(*) FROM versions v WHERE v.game_id=g.id) AS nversions, "
         "(SELECT COUNT(*) FROM versions v WHERE v.game_id=g.id AND v.missing_since IS NOT NULL) AS nmissing, "
         "(SELECT group_concat(t.name, '\x1f') FROM game_tags gt JOIN tags t ON t.id=gt.tag_id WHERE gt.game_id=g.id) AS tagstr, "
@@ -784,7 +803,7 @@ def game_detail(gid):
         "SELECT * FROM status_history WHERE game_id=? ORDER BY at DESC, id DESC LIMIT 20", (gid,)).fetchall()
     versions = []
     for v in get_db().execute(
-            "SELECT * FROM versions WHERE game_id=? ORDER BY added_at DESC, id DESC", (gid,)):
+            "SELECT * FROM versions WHERE game_id=? ORDER BY (position IS NULL) DESC, position, added_at DESC, id DESC", (gid,)):
         d = dict(v)
         try:
             d["exists"] = os.path.isdir(storage.resolve_in(games_dir(), v["folder"]))
@@ -798,10 +817,11 @@ def game_detail(gid):
         versions.append(d)
     group, cat = game_location(gid)
     playable = next((d for d in versions if d["entry_kind"] == "html"), None)
+    manual_order = any(d["position"] is not None for d in versions)
     return render_template("game.html", game=game, versions=versions, tags=game_tags(gid),
                            status=status, statuses=all_statuses(), history=history,
                            group=group, cat_chain=category_chain(cat)[1:] if cat else [],
-                           manual_cats=manual_categories(gid), playable=playable,
+                           manual_cats=manual_categories(gid), playable=playable, manual_order=manual_order,
                            saves=play.saves_summary(gid))
 
 
@@ -843,6 +863,12 @@ def game_new():
         source = form.get("source", "upload")
         cover = None
         try:
+            if source == "upload" and (not title or not label) and UPLOAD_ID.match(form.get("upload_id", "")):
+                guess = upload_meta(form["upload_id"]) or {}
+                title = title or guess.get("title", "")
+                label = label or guess.get("version", "") or ("1" if title else "")
+                if not title:
+                    raise UserError("Couldn't find the game's name in the uploaded file. Type a title.")
             if not title:
                 raise UserError("Title is required.")
             if platform not in PLATFORMS:
@@ -926,7 +952,7 @@ def game_artwork(gid):
     the first one found as the cover, replacing the current one."""
     game = get_game(gid)
     db = get_db()
-    for v in db.execute("SELECT folder FROM versions WHERE game_id=? ORDER BY added_at DESC, id DESC", (gid,)):
+    for v in db.execute("SELECT folder FROM versions WHERE game_id=? ORDER BY (position IS NULL) DESC, position, added_at DESC, id DESC", (gid,)):
         cover = auto_cover(v["folder"], game["title"])
         if cover:
             remove_cover(game["cover"])
@@ -971,6 +997,10 @@ def version_new(gid):
         label = f.get("version", "").strip()
         source = f.get("source", "upload")
         try:
+            if not label and source == "upload" and UPLOAD_ID.match(f.get("upload_id", "")):
+                label = (upload_meta(f["upload_id"]) or {}).get("version", "")
+                if not label:
+                    raise UserError("Couldn't find a version in the uploaded file. Type a version label.")
             if not label:
                 raise UserError("Version label is required.")
             if source == "upload":
@@ -1062,6 +1092,28 @@ def version_form(v, game):
             files.insert(0, v["entry"])
     return {"v": v, "game": game, "entries": files, "auto_entry": auto,
             "entry_missing": bool(v["entry"]) and v["entry"] not in files}
+
+
+@bp.post("/games/<int:gid>/versions/order")
+def versions_order(gid):
+    """Save the order picked by dragging (`order`: version ids, top first),
+    or go back to newest-first (`reset`). The top version is the default."""
+    get_game(gid)
+    db = get_db()
+    current = {r["id"] for r in db.execute("SELECT id FROM versions WHERE game_id=?", (gid,))}
+    if request.form.get("reset"):
+        db.execute("UPDATE versions SET position=NULL WHERE game_id=?", (gid,))
+    else:
+        ids = [int(x) for x in request.form.get("order", "").split(",") if x.strip().isdigit()]
+        if len(ids) != len(set(ids)) or set(ids) != current:
+            abort(409, "The versions changed meanwhile. Reload the page and try again.")
+        db.executemany("UPDATE versions SET position=? WHERE id=?", list(enumerate(ids)))
+    sync_folder_categories(gid)          # the default version's folder decides group/category
+    db.commit()
+    if request.accept_mimetypes.best == "application/json":
+        return jsonify(ok=True)
+    flash("Version order reset to newest first." if request.form.get("reset") else "Version order saved.", "ok")
+    return redirect(url_for("main.game_detail", gid=gid))
 
 
 @bp.post("/versions/<int:vid>/delete")
@@ -1167,6 +1219,17 @@ def upload():
             pass
         return jsonify(error=str(e)), 400
     return jsonify(id=upload_id, filename=filename, size=size)
+
+
+@bp.get("/api/uploads/<upload_id>/meta")
+def upload_guess(upload_id):
+    """What the uploaded file says about itself, to fill empty form fields."""
+    if not UPLOAD_ID.match(upload_id):
+        abort(404)
+    guess = upload_meta(upload_id)
+    if guess is None:
+        abort(404)
+    return jsonify(guess)
 
 
 @bp.post("/api/uploads/<upload_id>/delete")

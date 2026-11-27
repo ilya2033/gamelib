@@ -5,14 +5,14 @@
 <main class="form-page wide">
   <a class="back" href="{{ url_for('main.tools_hub') }}">← Tools</a>
   <h1>Old versions</h1>
-  <p class="muted">Every version except each game's newest. {% if summary.versions %}<b>{{ summary.versions }}</b> version(s) in {{ summary.games }} game(s) use <b>{{ summary.bytes|size }}</b>.{% endif %} The newest version of a game is never listed or deleted here.</p>
+  <p class="muted">Every version except each game's default (its top version: the newest, unless you reordered them). {% if summary.versions %}<b>{{ summary.versions }}</b> version(s) in {{ summary.games }} game(s) use <b>{{ summary.bytes|size }}</b>.{% endif %} The default version is never listed or deleted here.</p>
   {% if rows %}
   <form method="post" action="{{ url_for('main.tools_versions_delete') }}" id="oldv">
     {{ csrf() }}<input type="hidden" name="confirm" value="yes">
     {% for r in rows %}
     <section class="panel">
       <h2><a href="{{ url_for('main.game_detail', gid=r.id) }}">{{ r.title }}</a> <span class="count">{{ r.bytes|size }}</span></h2>
-      <p class="muted small">Newest: {{ r.latest.label|vlabel }} · {{ r.latest.size_bytes|size }}</p>
+      <p class="muted small">Kept (default): {{ r.latest.label|vlabel }} · {{ r.latest.size_bytes|size }}</p>
       {% for o in r.old %}
       <label class="check"><input type="checkbox" name="vid" value="{{ o.id }}"> {{ o.label|vlabel }} · {{ o.size_bytes|size }} · <span class="muted small">📁 {{ o.folder }}</span></label>
       {% endfor %}

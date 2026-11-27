@@ -8,11 +8,11 @@
   <form method="post" enctype="multipart/form-data" class="stack" data-needs-upload>
     {{ csrf() }}
     <div class="grid2">
-      <label>Title<input name="title" required maxlength="200" value="{{ form.get('title', '') }}" autofocus></label>
-      <label>Platform<select name="platform">{{ platform_options(form.get('platform', 'windows')) }}</select></label>
+      <label>Title<input name="title" maxlength="200" data-guess="title" placeholder="Taken from the upload if left empty" value="{{ form.get('title', '') }}" autofocus></label>
+      <label>Platform<select name="platform" data-guess="platform">{{ platform_options(form.get('platform', 'windows')) }}</select></label>
     </div>
     <div class="grid2">
-      <label>Version<input name="version" maxlength="60" placeholder="e.g. 1.0.0" value="{{ form.get('version', '') }}" data-version-input><small data-version-hint>Required unless “None yet” is chosen</small></label>
+      <label>Version<input name="version" maxlength="60" placeholder="e.g. 1.0.0" data-guess="version" value="{{ form.get('version', '') }}" data-version-input><small data-version-hint>Required unless “None yet” is chosen</small></label>
       <label>Status<select name="status">{% for s in statuses %}<option value="{{ s.key }}" {{ 'selected' if form.get('status', 'pending') == s.key }}>{{ s.label }}</option>{% endfor %}</select></label>
     </div>
     <div class="grid2">

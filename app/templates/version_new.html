@@ -8,7 +8,7 @@
   <p class="muted">Older versions are kept. The newest added version becomes “latest”.</p>
   <form method="post" class="stack" data-needs-upload>
     {{ csrf() }}
-    <label>Version<input name="version" required maxlength="60" placeholder="e.g. 1.1.0" value="{{ form.get('version', '') }}" autofocus></label>
+    <label>Version<input name="version" maxlength="60" placeholder="Taken from the upload if left empty" data-guess="version" value="{{ form.get('version', '') }}" autofocus></label>
     {{ source_picker(form, folders, destinations) }}
     <label>Notes<textarea name="notes" rows="3" placeholder="What changed? (optional)">{{ form.get('notes', '') }}</textarea></label>
     <div class="row end">

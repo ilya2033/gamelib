@@ -167,6 +167,68 @@
     });
   }
 
+  // ---- version order: drag the ⠿ handle (mouse or touch), or focus it and use ↑/↓
+  document.querySelectorAll("[data-sortable]").forEach((list) => {
+    const order = () => [...list.children].map((li) => li.dataset.vid).join(",");
+    let before = null, dragging = null, keyTimer = null;
+    async function save() {
+      if (order() === before) { before = null; return; }
+      before = null;
+      list.classList.add("saving");
+      const fd = new FormData();
+      fd.append("csrf", csrf);
+      fd.append("order", order());
+      try {
+        const r = await fetch(list.dataset.orderUrl, { method: "POST", body: fd, headers: { Accept: "application/json" } });
+        if (!r.ok) alert((await r.json().catch(() => ({}))).error || "The order could not be saved.");
+      } catch { alert("The order could not be saved: network error."); }
+      sessionStorage.setItem("gamelib-focus-drag", document.activeElement?.closest?.("li")?.dataset.vid || "");
+      location.reload();          // Play, Download and "default" follow the new top version
+    }
+    list.querySelectorAll(".drag").forEach((h) => {
+      const li = h.closest("li");
+      // Moving the item in the page drops pointer capture, so the move/up
+      // listeners live on the document for the length of the drag.
+      h.addEventListener("pointerdown", (e) => {
+        if (e.button !== 0 || dragging) return;
+        e.preventDefault();
+        dragging = li; before = order();
+        li.classList.add("dragging"); list.classList.add("sorting");
+        const move = (ev) => {
+          const target = [...list.children].find((x) => x !== li && ev.clientY < x.getBoundingClientRect().top + x.offsetHeight / 2);
+          if (target) { if (li.nextElementSibling !== target) list.insertBefore(li, target); }
+          else if (list.lastElementChild !== li) list.append(li);
+        };
+        const end = () => {
+          document.removeEventListener("pointermove", move);
+          document.removeEventListener("pointerup", end);
+          document.removeEventListener("pointercancel", end);
+          dragging = null;
+          li.classList.remove("dragging"); list.classList.remove("sorting");
+          save();
+        };
+        document.addEventListener("pointermove", move);
+        document.addEventListener("pointerup", end);
+        document.addEventListener("pointercancel", end);
+      });
+      h.addEventListener("keydown", (e) => {
+        if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+        e.preventDefault();
+        if (before === null) before = order();
+        if (e.key === "ArrowUp" && li.previousElementSibling) list.insertBefore(li, li.previousElementSibling);
+        if (e.key === "ArrowDown" && li.nextElementSibling) list.insertBefore(li.nextElementSibling, li);
+        h.focus();
+        clearTimeout(keyTimer);
+        keyTimer = setTimeout(save, 700);
+      });
+    });
+    const again = sessionStorage.getItem("gamelib-focus-drag");
+    if (again) {
+      sessionStorage.removeItem("gamelib-focus-drag");
+      list.querySelector(`li[data-vid="${again}"] .drag`)?.focus();
+    }
+  });
+
   // ---- a file input that submits its form when a file is picked
   document.querySelectorAll("input[type=file][data-autosubmit-file]").forEach((i) =>
     i.addEventListener("change", () => {
@@ -467,6 +529,16 @@
     });
   });
 
+  // typed-in fields stop being "guessed"; a platform picked by hand is never changed
+  document.querySelectorAll("[data-guess]").forEach((f) => {
+    f.addEventListener(f.tagName === "SELECT" ? "change" : "input", (e) => {
+      if (!e.isTrusted) return;
+      f.classList.remove("guessed");
+      delete f.dataset.guessed;
+      if (f.tagName === "SELECT") f.dataset.touched = "1";
+    });
+  });
+
   document.querySelectorAll("[data-uploader]").forEach((up) => {
     const input = up.querySelector('input[type="file"]');
     const hidden = up.querySelector('input[name="upload_id"]');
@@ -478,6 +550,34 @@
     const cancel = up.querySelector("[data-cancel]");
     const form = up.closest("form");
     let xhr = null;
+
+    // Fill empty Title / Version (and an untouched Platform) from what the upload says about itself.
+    async function fillFromUpload(id) {
+      let g;
+      try {
+        const r = await fetch(`/api/uploads/${id}/meta`);
+        if (!r.ok) return;
+        g = await r.json();
+      } catch { return; }
+      if (hidden.value !== id || !form) return;
+      const done = [];
+      const put = (key, value, from) => {
+        const f = form.querySelector(`[data-guess="${key}"]`);
+        if (!f || !value) return;
+        if (f.tagName === "SELECT") {
+          if (f.dataset.touched || ![...f.options].some((o) => o.value === value)) return;
+        } else if (f.value.trim() && !f.dataset.guessed) return;   // never overwrite what was typed
+        f.value = value;
+        f.dataset.guessed = "1";
+        f.dispatchEvent(new Event("input", { bubbles: true }));
+        f.classList.add("guessed");
+        done.push(from ? `${key} from ${from}` : key);
+      };
+      put("title", g.title, g.title_from);
+      put("version", g.version, g.version_from);
+      put("platform", g.platform, "");
+      if (done.length) status.textContent += ` Filled in ${done.join(", ")}.`;
+    }
 
     function start(file) {
       if (!file) return;
@@ -518,6 +618,7 @@
         if (xhr.status === 200 && res.id) {
           hidden.value = res.id; bar.style.width = "100%"; up.classList.add("done");
           status.textContent = `Uploaded ${fmt(res.size)}. It is unpacked into the share when you save.`;
+          fillFromUpload(res.id);
         } else {
           up.classList.add("failed");
           status.textContent = xhr.status === 401

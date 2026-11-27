@@ -73,10 +73,10 @@ def create_app(config=None):
     jobs.start_scheduler(app)
 
     def handle_http_error(e):
-        if request.path.startswith("/api/"):
+        if request.path.startswith("/api/") or request.accept_mimetypes.best == "application/json":
             return jsonify(error=e.description, status=e.code), e.code
         return render_template("error.html", error=e), e.code
 
-    for code in (400, 401, 403, 404, 405, 411, 413, 429):
+    for code in (400, 401, 403, 404, 405, 409, 411, 413, 429):
         app.register_error_handler(code, handle_http_error)
     return app

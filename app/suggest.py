@@ -58,7 +58,7 @@ def suggest_games(q):
     db = get_db()
     rows = db.execute(
         "SELECT g.id, g.title, g.platform, g.cover, g.favorite, s.label AS status, s.color AS status_color, "
-        "(SELECT label FROM versions v WHERE v.game_id=g.id ORDER BY added_at DESC, id DESC LIMIT 1) AS latest "
+        "(SELECT label FROM versions v WHERE v.game_id=g.id ORDER BY (position IS NULL) DESC, position, added_at DESC, id DESC LIMIT 1) AS latest "
         "FROM games g LEFT JOIN statuses s ON s.id=g.status_id").fetchall()
     ranked = []
     for r in rows:
