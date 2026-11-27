@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.6.0 (2026-11-27)
+
+- **Search with autocomplete.** Typing in the top-bar search shows matching games as you type: cover, status, platform and latest version, with the typed letters highlighted. Below them are matching tags, groups and categories to filter by. Use ↑/↓ and Enter, or the mouse; Esc closes the list; Enter with nothing highlighted searches as before. Press **/** anywhere to jump to the search box.
+  - Matching ignores case, accents and punctuation, and finds words in any order, initials (`ff vii` → *Final Fantasy VII*, `hk` → *Hollow Knight*) and titles with spaces left out (`witcher3`). When nothing matches, close spellings are offered under *Did you mean*.
+
 ## 1.5.0 (2026-11-27)
 
 Database schema v6: on first start, a `pre-v6` backup is written to `/data/backups`, then the database is migrated.

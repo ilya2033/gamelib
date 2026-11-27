@@ -30,6 +30,143 @@
     narrow.addEventListener("change", syncFilters);
   }
 
+  // ---- search suggestions (top bar)
+  const sInput = document.querySelector("input[data-suggest]");
+  if (sInput) {
+    const box = document.getElementById("suggest-list");
+    const form = sInput.form;
+    const cache = new Map();
+    let items = [], active = -1, timer = null, ctrl = null, lastQ = null;
+
+    const el = (tag, cls, text) => {
+      const e = document.createElement(tag);
+      if (cls) e.className = cls;
+      if (text != null) e.textContent = text;
+      return e;
+    };
+    // the query's words highlighted in a title, built with DOM nodes (no HTML injection)
+    function highlight(text, q) {
+      const frag = document.createDocumentFragment();
+      const words = q.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean)
+        .map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+      if (!words.length) { frag.append(text); return frag; }
+      const re = new RegExp("(" + words.join("|") + ")", "giu");
+      let last = 0;
+      text.replace(re, (m, _g, i) => {
+        if (i > last) frag.append(text.slice(last, i));
+        frag.append(el("mark", null, m));
+        last = i + m.length;
+        return m;
+      });
+      if (last < text.length) frag.append(text.slice(last));
+      return frag;
+    }
+    function close() {
+      box.hidden = true; box.replaceChildren(); items = []; active = -1;
+      sInput.setAttribute("aria-expanded", "false"); sInput.removeAttribute("aria-activedescendant");
+    }
+    function setActive(i) {
+      if (items[active]) items[active].classList.remove("active");
+      active = i;
+      if (items[active]) {
+        items[active].classList.add("active");
+        items[active].scrollIntoView({ block: "nearest" });
+        sInput.setAttribute("aria-activedescendant", items[active].id);
+      } else sInput.removeAttribute("aria-activedescendant");
+    }
+    function option(href, build) {
+      const a = el("a", "sg-item");
+      a.href = href; a.id = "sg-" + items.length; a.setAttribute("role", "option"); a.tabIndex = -1;
+      build(a);
+      a.addEventListener("mousemove", () => { if (items.indexOf(a) !== active) setActive(items.indexOf(a)); });
+      items.push(a);
+      return a;
+    }
+    function render(d) {
+      box.replaceChildren(); items = []; active = -1;
+      const q = d.q;
+      if (d.games.length) {
+        if (d.fuzzy) box.append(el("div", "sg-head", "Did you mean"));
+        d.games.forEach((g) => box.append(option(g.url, (a) => {
+          const pic = g.cover ? el("img", "sg-cover") : el("span", "sg-cover ph", g.title.trim().slice(0, 1).toUpperCase());
+          if (g.cover) { pic.src = g.cover; pic.alt = ""; pic.loading = "lazy"; }
+          const body = el("span", "sg-body");
+          const t = el("span", "sg-title");
+          t.append(highlight(g.title, q));
+          if (g.favorite) t.append(el("span", "sg-fav", " ♥"));
+          const meta = el("span", "sg-meta", [g.platform, g.latest].filter(Boolean).join(" · "));
+          if (g.status) {
+            const st = el("span", "sg-status", g.status);
+            st.style.setProperty("--c", g.status_color || "#8a93a3");
+            meta.prepend(st);
+          }
+          body.append(t, meta);
+          a.append(pic, body);
+        })));
+      }
+      const named = [...d.tags, ...d.categories];
+      if (named.length) {
+        box.append(el("div", "sg-head", "Filter by"));
+        named.forEach((n) => box.append(option(n.url, (a) => {
+          a.classList.add("sg-filter");
+          const label = el("span", "sg-title");
+          label.append(n.kind === "tag" ? "#" : n.kind === "group" ? "▦ " : "★ ", highlight(n.name, q));
+          a.append(label, el("span", "sg-count", String(n.count)));
+        })));
+      }
+      if (!d.games.length && !named.length) box.append(el("div", "sg-empty", "No games match."));
+      box.append(option(d.all_url, (a) => {
+        a.classList.add("sg-all");
+        const label = el("span", "sg-title");
+        label.append("Search all games for “", el("b", null, q), "”");
+        a.append(label, el("span", "sg-count", "↵"));
+      }));
+      box.hidden = false;
+      sInput.setAttribute("aria-expanded", "true");
+    }
+    async function lookup() {
+      const q = sInput.value.trim();
+      if (q === lastQ && !box.hidden) return;
+      lastQ = q;
+      if (!q) { close(); return; }
+      if (cache.has(q)) { render(cache.get(q)); return; }
+      ctrl?.abort();
+      ctrl = new AbortController();
+      try {
+        const r = await fetch(sInput.dataset.suggest + "?q=" + encodeURIComponent(q), { signal: ctrl.signal });
+        if (!r.ok) return;
+        const d = await r.json();
+        cache.set(q, d);
+        if (sInput.value.trim() === q && document.activeElement === sInput) render(d);
+      } catch { /* aborted or offline: keep the plain search */ }
+    }
+    sInput.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(lookup, 120); });
+    sInput.addEventListener("focus", () => { if (sInput.value.trim()) { lastQ = null; lookup(); } });
+    sInput.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        if (box.hidden) { lastQ = null; lookup(); return; }
+        e.preventDefault();
+        const n = items.length;
+        setActive(e.key === "ArrowDown" ? (active + 1) % n : (active - 1 + n) % n);
+      } else if (e.key === "Enter" && items[active]) {
+        e.preventDefault();
+        location.href = items[active].href;
+      } else if (e.key === "Escape") {
+        if (!box.hidden) { e.preventDefault(); close(); }
+      }
+    });
+    sInput.addEventListener("blur", () => setTimeout(() => { if (!box.contains(document.activeElement)) close(); }, 150));
+    box.addEventListener("mousedown", (e) => e.preventDefault());   // keep focus in the input while clicking
+    form.addEventListener("submit", () => close());
+    // "/" focuses the search from anywhere (not while typing in a field)
+    document.addEventListener("keydown", (e) => {
+      if (e.key !== "/" || e.ctrlKey || e.metaKey || e.altKey) return;
+      const t = e.target;
+      if (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
+      e.preventDefault(); sInput.focus(); sInput.select();
+    });
+  }
+
   // ---- a file input that submits its form when a file is picked
   document.querySelectorAll("input[type=file][data-autosubmit-file]").forEach((i) =>
     i.addEventListener("change", () => {

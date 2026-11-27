@@ -6,6 +6,7 @@ platforms, tags, version history, uploads straight into the share and zip
 downloads. One Flask app, SQLite, one container, no external services.
 
 - **Library:** cover grid or list, with search, platform and tag filters, and sorting by name, added or updated.
+- **Search with autocomplete:** suggestions appear as you type (games with cover and status, plus matching tags, groups and categories). It tolerates typos, initials such as `ff vii`, and missing spaces. Press **/** to focus the search.
 - **Groups and categories:** subfolders on the share become groups (tabs) and categories (a sidebar tree), and you can add your own categories.
 - **Games:** title, platform (Windows, Linux, macOS, HTML, Unity WebGL, Other), description, tags and a cover/logo.
 - **Statuses:** Pending, On hold, Completed and Abandoned, plus any custom ones you add. Each game has one status, with a history of changes, and you can filter and sort by status. Manage them in **Settings → Statuses**.

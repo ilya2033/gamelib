@@ -4,7 +4,7 @@ from datetime import timedelta
 
 from flask import Flask, jsonify, render_template, request
 
-from . import auth, db, jobs, play, storage, tasks, tools, views  # noqa: F401  (tasks/tools register handlers and routes)
+from . import auth, db, jobs, play, storage, suggest, tasks, tools, views  # noqa: F401  (tasks/tools register handlers and routes)
 from .version import __version__
 
 

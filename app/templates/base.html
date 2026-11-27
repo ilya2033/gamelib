@@ -17,7 +17,10 @@
     <img src="{{ url_for('static', filename='icon.svg') }}" alt="" width="26" height="26"><span>GameLib</span>
   </a>
   <form class="search" action="{{ url_for('main.index') }}" method="get" role="search">
-    <input type="search" name="q" value="{{ q or '' }}" placeholder="Search games, tags…" aria-label="Search">
+    <input type="search" name="q" value="{{ q or '' }}" placeholder="Search games, tags…  ( / )" aria-label="Search"
+           autocomplete="off" spellcheck="false" role="combobox" aria-autocomplete="list" aria-expanded="false"
+           aria-controls="suggest-list" data-suggest="{{ url_for('main.api_suggest') }}">
+    <div class="suggest" id="suggest-list" role="listbox" aria-label="Suggestions" hidden></div>
     {% if platform %}<input type="hidden" name="platform" value="{{ platform }}">{% endif %}
     {% if tag %}<input type="hidden" name="tag" value="{{ tag }}">{% endif %}
     {% if status %}<input type="hidden" name="status" value="{{ status }}">{% endif %}
