@@ -17,7 +17,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 ARG VERSION=dev
 LABEL org.opencontainers.image.title="GameLib" \
       org.opencontainers.image.description="Self-hosted game library for a games share" \
-      org.opencontainers.image.version="${VERSION}"
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.licenses="MIT"
 
 COPY app ./app
 COPY gunicorn.conf.py docker/entrypoint.sh ./

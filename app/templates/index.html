@@ -4,10 +4,30 @@
 <div class="layout">
   <aside class="sidebar" id="filters">
     <details class="filter-box" open>
-      {% set nfilters = (1 if platform else 0) + (1 if tag else 0) + (1 if status else 0) + (1 if category else 0) %}
+      {% set nfilters = (1 if platform else 0) + (1 if tag else 0) + (1 if status else 0) + (1 if category else 0) + (1 if fav else 0) + (1 if rating else 0) + (1 if missing else 0) + (1 if nocover else 0) %}
       <summary>Filters{% if nfilters %} <span class="badge">{{ nfilters }}</span>{% endif %}</summary>
       <h4>Library</h4>
-      <a class="side-link {{ 'active' if not platform and not tag and not status and not category and not group }}" href="{{ url_with(platform=None, tag=None, status=None, category=None, group=None) }}">All games <span class="count">{{ total }}</span></a>
+      <a class="side-link {{ 'active' if not nfilters and not group }}" href="{{ url_with(platform=None, tag=None, status=None, category=None, group=None, fav=None, rating=None, missing=None, nocover=None) }}">All games <span class="count">{{ total }}</span></a>
+      <a class="side-link {{ 'active' if fav }} {{ 'empty-count' if not personal.fav }}" href="{{ url_with(fav=None if fav else 1) }}"><span aria-hidden="true">♥</span>Favourites <span class="count">{{ personal.fav or 0 }}</span></a>
+      <a class="side-link {{ 'active' if rating }} {{ 'empty-count' if not personal.rated }}" href="{{ url_with(rating=None if rating else 4) }}"><span aria-hidden="true">★</span>Rated 4+ <span class="count">{{ personal.rated or 0 }}</span></a>
+      <a class="side-link {{ 'active' if nocover }} {{ 'empty-count' if not personal.nocover }}" href="{{ url_with(nocover=None if nocover else 1) }}"><span aria-hidden="true">▢</span>No cover <span class="count">{{ personal.nocover or 0 }}</span></a>
+      {% if personal.missing %}<a class="side-link warn-link {{ 'active' if missing }}" href="{{ url_with(missing=None if missing else 1) }}"><span aria-hidden="true">⚠</span>Missing folders <span class="count">{{ personal.missing }}</span></a>{% endif %}
+      {% if views %}
+      <h4>Saved views</h4>
+      {% for sv in views %}
+      <div class="view-link">
+        <a class="side-link {{ 'active' if current_query == sv.query }}" href="{{ url_for('main.index') }}?{{ sv.query }}">{{ sv.name }}</a>
+        <form method="post" action="{{ url_for('main.view_delete', view_id=sv.id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="back" value="{{ request.full_path }}"><button class="x" title="Delete view {{ sv.name }}" aria-label="Delete view {{ sv.name }}">×</button></form>
+      </div>
+      {% endfor %}
+      {% endif %}
+      {% if current_query %}
+      <form method="post" action="{{ url_for('main.view_save') }}" class="save-view">
+        <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="query" value="{{ current_query }}">
+        <input name="name" placeholder="Save these filters as…" maxlength="60" required aria-label="Name for this view">
+        <button class="btn small ghost">Save</button>
+      </form>
+      {% endif %}
       {% if cat_tree or manual_cats %}
       <h4>Categories</h4>
       <div class="tree">
@@ -62,20 +82,27 @@
         {% if platform %}<span class="chip">{{ platform|platform }} <a href="{{ url_with(platform=None) }}" aria-label="Clear platform">×</a></span>{% endif %}
         {% if tag %}<span class="chip">#{{ tag }} <a href="{{ url_with(tag=None) }}" aria-label="Clear tag">×</a></span>{% endif %}
         {% if category_row %}<span class="chip">{{ category_row.name }} <a href="{{ url_with(category=None) }}" aria-label="Clear category">×</a></span>{% endif %}
+        {% if fav %}<span class="chip">♥ Favourites <a href="{{ url_with(fav=None) }}" aria-label="Clear favourites">×</a></span>{% endif %}
+        {% if rating %}<span class="chip">★ {{ rating }}+ <a href="{{ url_with(rating=None) }}" aria-label="Clear rating">×</a></span>{% endif %}
+        {% if nocover %}<span class="chip">No cover <a href="{{ url_with(nocover=None) }}" aria-label="Clear no cover">×</a></span>{% endif %}
+        {% if missing %}<span class="chip">Missing folders <a href="{{ url_with(missing=None) }}" aria-label="Clear missing">×</a></span>{% endif %}
         {% if status %}{% for s in status_counts if s.key == status %}<span class="chip"><span class="dot" style="--c: {{ s.color }}"></span>{{ s.label }} <a href="{{ url_with(status=None) }}" aria-label="Clear status">×</a></span>{% endfor %}{% endif %}
       </div>
       <div class="tools">
         <form method="get" class="sort" data-autosubmit>
-          {% for k in ('q', 'platform', 'tag', 'status', 'group', 'category') %}{% if request.args.get(k) %}<input type="hidden" name="{{ k }}" value="{{ request.args.get(k) }}">{% endif %}{% endfor %}
+          {% for k in ('q', 'platform', 'tag', 'status', 'group', 'category', 'fav', 'rating', 'missing', 'nocover') %}{% if request.args.get(k) %}<input type="hidden" name="{{ k }}" value="{{ request.args.get(k) }}">{% endif %}{% endfor %}
           <select name="sort" aria-label="Sort by">
             <option value="name" {{ 'selected' if sort == 'name' }}>Name</option>
             <option value="added" {{ 'selected' if sort == 'added' }}>Added</option>
             <option value="updated" {{ 'selected' if sort == 'updated' }}>Updated</option>
             <option value="status" {{ 'selected' if sort == 'status' }}>Status</option>
             <option value="status_changed" {{ 'selected' if sort == 'status_changed' }}>Status changed</option>
+            <option value="rating" {{ 'selected' if sort == 'rating' }}>Rating</option>
+            <option value="hours" {{ 'selected' if sort == 'hours' }}>Hours played</option>
           </select>
           <button class="btn ghost icon" name="dir" value="{{ 'desc' if direction == 'asc' else 'asc' }}" title="Reverse order">{{ '↑' if direction == 'asc' else '↓' }}</button>
         </form>
+        {% if games %}<button type="button" class="btn ghost" data-select-toggle title="Select games to change several at once">Select</button>{% endif %}
         <div class="view-toggle" role="group" aria-label="View">
           <button class="btn ghost icon" data-view="grid" title="Grid view">▦</button>
           <button class="btn ghost icon" data-view="list" title="List view">☰</button>
@@ -84,11 +111,31 @@
     </div>
 
     {% if games %}
+    <form id="bulk" class="bulk-bar" method="post" action="{{ url_for('main.games_bulk') }}" hidden>
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="back" value="{{ request.full_path }}">
+      <span class="bulk-count" data-bulk-count>0 selected</span>
+      <button type="button" class="btn small ghost" data-select-all>All shown</button>
+      <select name="action" aria-label="Bulk action" data-bulk-action>
+        <optgroup label="Status">{% for s in status_counts %}<option value="status:{{ s.key }}">Set status: {{ s.label }}</option>{% endfor %}</optgroup>
+        <optgroup label="Personal">
+          <option value="fav">Add to favourites</option><option value="unfav">Remove from favourites</option>
+          <option value="rating" data-needs="1–5 or empty">Set rating…</option></optgroup>
+        <optgroup label="Tags and categories">
+          <option value="tag-add" data-needs="tag">Add tag…</option><option value="tag-remove" data-needs="tag">Remove tag…</option>
+          <option value="cat-add" data-needs="category">Add category…</option><option value="cat-remove" data-needs="category">Remove category…</option></optgroup>
+      </select>
+      <input name="value" maxlength="200" placeholder="" aria-label="Value for the bulk action" data-bulk-value hidden>
+      <button class="btn small primary">Apply</button>
+      <button type="button" class="btn small ghost" data-select-toggle>Done</button>
+    </form>
     <ul class="games grid" data-games>
       {% for g in games %}
       <li class="card">
+        <input type="checkbox" class="pick" name="ids" value="{{ g.id }}" form="bulk" aria-label="Select {{ g.title }}">
         <a href="{{ url_for('main.game_detail', gid=g.id) }}">
           <div class="art">{{ cover(g) }}<span class="plat p-{{ g.platform }}">{{ g.platform|platform }}</span>
+            {% if g.favorite %}<span class="fav-pip" title="Favourite" aria-label="Favourite">♥</span>{% endif %}
+            {% if g.nmissing %}<span class="miss-pip" title="{{ g.nmissing }} version folder(s) missing" aria-label="Folder missing">⚠</span>{% endif %}
             {% if g.status_key %}<span class="status-pip" style="--c: {{ g.status_color }}" title="{{ g.status_label }}" aria-label="Status: {{ g.status_label }}"></span>{% endif %}</div>
           <div class="meta">
             <div class="title" title="{{ g.title }}">{{ g.title }}</div>
@@ -100,6 +147,8 @@
               <span class="plat-text p-{{ g.platform }}">{{ g.platform|platform }}</span>
               {% if g.status_key %}<span class="status-text" style="--c: {{ g.status_color }}"><span class="dot"></span>{{ g.status_label }}</span>{% endif %}
               {% if g.group_name %}<span>📁 {{ g.group_name }}</span>{% endif %}
+              {% if g.rating %}<span class="stars" aria-label="{{ g.rating }} of 5 stars">{{ '★' * g.rating }}</span>{% endif %}
+              {% if g.hours %}<span>{{ g.hours|hours }}</span>{% endif %}
               <span>{{ g.nversions }} version{{ '' if g.nversions == 1 else 's' }}</span>
               <span>updated {{ g.updated_at|day }}</span>
               {% if g.tags %}<span class="tags">{% for t in g.tags %}<i>#{{ t }}</i>{% endfor %}</span>{% endif %}

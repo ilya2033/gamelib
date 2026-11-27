@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% from "macros.html" import csrf %}
+{% block title %}Old versions · Tools{% endblock %}
+{% block body %}
+<main class="form-page wide">
+  <a class="back" href="{{ url_for('main.tools_hub') }}">← Tools</a>
+  <h1>Old versions</h1>
+  <p class="muted">Every version except each game's newest. {% if summary.versions %}<b>{{ summary.versions }}</b> version(s) in {{ summary.games }} game(s) use <b>{{ summary.bytes|size }}</b>.{% endif %} The newest version of a game is never listed or deleted here.</p>
+  {% if rows %}
+  <form method="post" action="{{ url_for('main.tools_versions_delete') }}" id="oldv">
+    {{ csrf() }}<input type="hidden" name="confirm" value="yes">
+    {% for r in rows %}
+    <section class="panel">
+      <h2><a href="{{ url_for('main.game_detail', gid=r.id) }}">{{ r.title }}</a> <span class="count">{{ r.bytes|size }}</span></h2>
+      <p class="muted small">Newest: {{ r.latest.label|vlabel }} · {{ r.latest.size_bytes|size }}</p>
+      {% for o in r.old %}
+      <label class="check"><input type="checkbox" name="vid" value="{{ o.id }}"> {{ o.label|vlabel }} · {{ o.size_bytes|size }} · <span class="muted small">📁 {{ o.folder }}</span></label>
+      {% endfor %}
+    </section>
+    {% endfor %}
+    <div class="sticky-actions row">
+      <button type="button" class="btn small ghost" data-check-all="oldv">Select all</button>
+      <label class="check"><input type="checkbox" name="delete_files" value="1"> Also delete the folders from the share (cannot be undone)</label>
+      <button class="btn small danger" data-confirm="Remove the selected versions from the library? If the box is ticked, their folders are deleted from the share.">Remove selected</button>
+    </div>
+  </form>
+  {% else %}
+  <p class="empty">Every game has a single version.</p>
+  {% endif %}
+</main>
+{% endblock %}

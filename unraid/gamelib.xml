@@ -19,11 +19,11 @@
   <Privileged>false</Privileged>
   <Support>https://github.com/__REPO__/issues</Support>
   <Project>https://github.com/__REPO__</Project>
-  <Overview>Self-hosted game library. Tracks the game folders on your games share (one folder per version), with cover grid, tags, version history, uploads into the share and zip downloads. Single user, LAN.</Overview>
+  <Overview>Self-hosted game library for the games share. Tracks game folders (one folder per version) in a Lutris-style cover grid with statuses, ratings, tags, groups and categories from your subfolders. Scans the share in the background, finds artwork in game folders (including .exe icons) or on SteamGridDB, flags missing folders and duplicates, shows storage use, uploads zips into the share and downloads any version as a zip. Export/import of the whole library. Single user, for your LAN.</Overview>
   <Category>Tools: Other:</Category>
   <WebUI>http://[IP]:[PORT:8080]/</WebUI>
   <TemplateURL>https://github.com/__REPO__/releases/latest/download/gamelib.xml</TemplateURL>
-  <Icon/>
+  <Icon>https://raw.githubusercontent.com/__REPO__/main/app/static/icon-512.png</Icon>
   <ExtraParams/>
   <PostArgs/>
   <CPUset/>
@@ -90,4 +90,7 @@
   <Config Name="Light job threads" Target="JOB_LIGHT_WORKERS" Default="2" Mode=""
           Description="Threads for quick background jobs. Heavy share jobs always run one at a time."
           Type="Variable" Display="advanced" Required="false" Mask="false">2</Config>
+  <Config Name="SteamGridDB API key" Target="STEAMGRIDDB_API_KEY" Default="" Mode=""
+          Description="Optional. Free key from steamgriddb.com (Preferences > API) for box art. Can also be set in the app under Settings > Integrations. Only used when you click a SteamGridDB button."
+          Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
 </Container>

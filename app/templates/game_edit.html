@@ -15,6 +15,14 @@
       <label>Tags<input name="tags" value="{{ tags|join(', ') }}"><small>Comma separated</small></label>
       <label>Categories<input name="categories" value="{{ categories|join(', ') }}" placeholder="Favourites, Couch co-op"><small>Your own, comma separated. The folder group/category follows the share and can't be edited here.</small></label>
     </div>
+    <input type="hidden" name="personal" value="1">
+    <div class="grid2">
+      <label>Rating<select name="rating">{% set cur = request.form.get('rating', game.rating|string if game.rating else '') %}
+        <option value="">No rating</option>{% for n in range(1, 6) %}<option value="{{ n }}" {{ 'selected' if cur == n|string }}>{{ '★' * n }}</option>{% endfor %}</select></label>
+      <label>Hours played<input name="hours" inputmode="decimal" value="{{ request.form.get('hours', game.hours if game.hours is not none else '') }}" placeholder="e.g. 12.5"><small>Your own count; GameLib doesn't launch games.</small></label>
+    </div>
+    <label class="check"><input type="checkbox" name="favorite" value="1" {{ 'checked' if (request.form.get('favorite') if request.method == 'POST' else game.favorite) }}> ♥ Favourite</label>
+    <label>My notes<textarea name="notes" rows="4" placeholder="Where you left off, mods, save locations…">{{ request.form.get('notes', game.notes) }}</textarea></label>
     <label>Description<textarea name="description" rows="6">{{ request.form.get('description', game.description) }}</textarea></label>
     <div class="cover-edit">
       {{ cover(game, 'thumb') }}
@@ -22,6 +30,7 @@
         <label>Replace logo / cover<input type="file" name="cover" accept="image/png,image/jpeg,image/webp,image/gif"></label>
         {% if game.cover %}<label class="check"><input type="checkbox" name="remove_cover" value="1"> Remove current cover</label>{% endif %}
         <button class="btn small ghost" form="find-artwork" title="Cover image, engine icon, favicon or the icon inside the game's .exe">Find artwork in game folder</button>
+        <a class="btn small ghost" href="{{ url_for('main.game_sgdb', gid=game.id) }}" title="Search SteamGridDB for box art (needs an API key in Settings)">Find cover on SteamGridDB</a>
       </div>
     </div>
     <div class="row end">

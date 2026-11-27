@@ -56,7 +56,6 @@ downloads. One Flask app, SQLite, one container, no external services.
 - **Cover:** if you don't upload one, a `cover.*`, `folder.*`, `logo.*` or `poster.*` image (png, jpg, webp) at the top of the game folder is used automatically.
 - **Read-only:** apart from uploads and the optional "also delete files" on delete, the app never changes the share. To make it strictly track-only, mount `/games` read-only.
 - **Background jobs:** everything slow runs in background workers, so pages never wait for the share. That covers scanning, importing, unpacking uploads, measuring folder sizes, deleting folders, and finding artwork.
-- **Artwork rescan (on demand only):** *Jobs → Find artwork in game folders* looks through the whole library for a cover image, engine icon, favicon or `.exe` icon. Pick the scope: games without a cover, also refresh covers that were found automatically, or every game including covers you uploaded (needs an extra tick). A game keeps its cover when nothing is found. It never runs on a schedule and isn't resumed after a restart.
   - **Jobs page:** the **⏳ Jobs** page and top-bar badge show progress, and you can **Cancel** a job.
   - **One at a time:** share-heavy jobs run one after another, so an Unraid array isn't thrashed.
   - **Restarts:** jobs survive a container restart. Scans and size checks are re-queued; an interrupted upload is cleaned up and marked failed.
@@ -65,6 +64,16 @@ downloads. One Flask app, SQLite, one container, no external services.
   - It is **incremental**: platform detection and sizes are cached per folder and only redone when a folder's modified time changes.
   - It never imports anything by itself.
 - **Spun-down disks:** pages never walk the share. The folder list used by pages is cached and refreshed in the background.
+- **Artwork rescan (on demand only):** *Jobs → Find artwork in game folders* looks through the whole library for a cover image, engine icon, favicon or `.exe` icon. Pick the scope: games without a cover, also refresh covers that were found automatically, or every game including covers you uploaded (needs an extra tick). A game keeps its cover when nothing is found. It never runs on a schedule and isn't resumed after a restart.
+- **Your own data per game:** a 1–5 star rating, a ♥ favourite, hours played (typed in; GameLib doesn't launch games) and private notes. Set them on the game page or in *Edit*, filter the library by them, and sort by rating or hours.
+- **Saved views:** any combination of filters can be saved under a name in the sidebar, for example "Pending + Windows + no cover".
+- **Bulk edit:** **Select** in the library toolbar, tick games (or *All shown*), then set status, rating or favourite, or add/remove a tag or category for all of them at once.
+- **Missing folders:** every rescan marks versions whose folder is gone. They show with ⚠ in the library and are listed under *Tools → Missing folders*, where you can **Relink** a moved folder or **Forget** a deleted one (the game, its status and notes stay). If the share looks unmounted (empty or unreadable), nothing is marked.
+- **Export / import:** *Tools → Export and import* downloads the whole library as one JSON file (statuses, ratings, favourites, hours, notes, tags, categories and version folders; not covers or files). Importing merges into the current library, matching games by version folder, then by title.
+- **SteamGridDB covers (optional):** with a free API key (*Settings → Integrations* or the `STEAMGRIDDB_API_KEY` variable), *Find cover on SteamGridDB* on a game's *Edit* page lets you pick box art, and *Tools* can fetch covers for every game without one. Only runs when you click; game titles are sent to SteamGridDB.
+- **Duplicates:** *Tools → Duplicates* lists games with the same title (ignoring case, punctuation, a leading "The" and bracketed parts) and merges two entries into one.
+- **Old versions:** *Tools → Old versions* lists every version except each game's newest, biggest first, and removes the ones you pick, optionally deleting their folders. The newest version is never offered.
+- **Storage:** *Tools → Storage* shows size by status, group and platform, the largest games and free space on the share.
 
 ## Install on Unraid
 
@@ -117,6 +126,7 @@ Or copy it over SMB to `\\TOWER\flash\config\plugins\dockerMan\templates-user\my
 | Rescan time / interval | `RESCAN_AT` / `RESCAN_INTERVAL_HOURS` | `04:00` / `24` | Scheduled background rescan of the share; `0` hours = off. *(advanced)* |
 | Light job threads | `JOB_LIGHT_WORKERS` | `2` | Quick background jobs. Heavy share jobs always run one at a time. *(advanced)* |
 | Scan depth | `SCAN_DEPTH` | `3` | How many folder levels Scan looks into (1–6). `3` fits *Group / Category / Game v1*. *(advanced)* |
+| SteamGridDB API key | `STEAMGRIDDB_API_KEY` | empty | Optional, for box art. Can also be set in *Settings → Integrations*. *(advanced)* |
 
 4. Click **Apply**. Unraid pulls the image, and the container should turn *healthy* within about a minute.
 

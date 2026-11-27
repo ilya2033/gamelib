@@ -148,6 +148,25 @@ MIGRATIONS = [
     );
     CREATE INDEX folder_rule_history_batch ON folder_rule_history(batch);
     """,
+    # v5 (1.4.0): personal fields, missing-folder tracking, saved views, settings
+    """
+    ALTER TABLE games ADD COLUMN rating INTEGER CHECK (rating BETWEEN 1 AND 5);
+    ALTER TABLE games ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE games ADD COLUMN notes TEXT NOT NULL DEFAULT '';
+    ALTER TABLE games ADD COLUMN hours REAL CHECK (hours >= 0);
+    ALTER TABLE versions ADD COLUMN missing_since TEXT;   -- set by rescans when the folder is gone
+    CREATE INDEX versions_missing ON versions(missing_since);
+    CREATE TABLE saved_views (
+        id    INTEGER PRIMARY KEY,
+        name  TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        query TEXT NOT NULL,             -- library URL query string (allowed keys only)
+        sort  INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE settings (
+        key   TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+    );
+    """,
 ]
 SCHEMA_VERSION = len(MIGRATIONS)
 KEEP_MANUAL = 10   # manual backups kept

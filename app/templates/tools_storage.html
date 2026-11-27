@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Storage · Tools{% endblock %}
+{% macro bars(rows, total, label_key) %}
+<ul class="bars">
+  {% for r in rows %}
+  <li><span class="b-label">{% if r.color %}<span class="dot" style="--c: {{ r.color }}"></span>{% endif %}{{ r[label_key] }}</span>
+    <span class="b-track"><span class="b-fill" style="width: {{ (100 * r.bytes / total) if total else 0 }}%"></span></span>
+    <span class="b-val">{{ r.bytes|size }} <span class="muted small">· {{ r.games }} game(s)</span></span></li>
+  {% endfor %}
+</ul>
+{% endmacro %}
+{% block body %}
+<main class="form-page wide">
+  <a class="back" href="{{ url_for('main.tools_hub') }}">← Tools</a>
+  <h1>Storage</h1>
+  <p class="muted"><b>{{ totals.bytes|size }}</b> tracked in {{ totals.versions }} version(s){% if totals.unmeasured %}; {{ totals.unmeasured }} still being measured{% endif %}.
+  {% if disk %} The games share has {{ disk.free|size }} free of {{ disk.total|size }}.{% endif %}</p>
+  <section class="panel"><h2>By status</h2>{{ bars(by_status, totals.bytes, 'label') }}</section>
+  <section class="panel"><h2>By group</h2>{{ bars(by_group, totals.bytes, 'name') }}</section>
+  <section class="panel"><h2>By platform</h2>{{ bars(by_platform, totals.bytes, 'label') }}</section>
+  <section class="panel"><h2>Largest games</h2>
+    <ol class="largest">{% for g in largest %}<li><a href="{{ url_for('main.game_detail', gid=g.id) }}">{{ g.title }}</a> <span class="muted small">{{ g.nversions }} version(s)</span> <b>{{ g.bytes|size }}</b></li>{% endfor %}</ol>
+  </section>
+</main>
+{% endblock %}

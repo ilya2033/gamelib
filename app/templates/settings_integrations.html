@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% from "macros.html" import csrf %}
+{% block title %}Integrations · Settings{% endblock %}
+{% block body %}
+<main class="form-page">
+  <a class="back" href="{{ url_for('main.index') }}">← Library</a>
+  <nav class="subnav"><a href="{{ url_for('main.settings_statuses') }}">Statuses</a><a class="active" href="{{ url_for('main.settings_integrations') }}">Integrations</a></nav>
+  <h1>Integrations</h1>
+  <section class="panel">
+    <h2>SteamGridDB</h2>
+    <p class="muted small">Box art from <a href="https://www.steamgriddb.com" rel="noopener" target="_blank">SteamGridDB</a>. Get a free API key under <i>Preferences → API</i> on their site. It's only used when you click a SteamGridDB button; game titles are sent to SteamGridDB, nothing else.</p>
+    {% if env_key %}
+    <p class="small">A key is set by the <code>STEAMGRIDDB_API_KEY</code> container variable, and it takes precedence.</p>
+    {% endif %}
+    <form method="post" class="stack">
+      {{ csrf() }}
+      <label>API key<input name="steamgriddb_key" type="password" autocomplete="off" placeholder="{{ '•••••••• (saved)' if has_key else 'Paste your key' }}"></label>
+      <div class="row">
+        <button class="btn primary">Save</button>
+        {% if has_key %}<button class="btn ghost danger-text" name="clear" value="1">Remove key</button>{% endif %}
+      </div>
+    </form>
+  </section>
+</main>
+{% endblock %}

@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% from "macros.html" import csrf, cover %}
+{% block title %}Duplicates · Tools{% endblock %}
+{% block body %}
+<main class="form-page wide">
+  <a class="back" href="{{ url_for('main.tools_hub') }}">← Tools</a>
+  <h1>Duplicates</h1>
+  <p class="muted">Games whose titles match once case, punctuation, a leading “The” and bracketed parts are ignored. Merging moves the other entry's versions, tags, categories, notes and hours into the one you keep, then removes the other entry. No files are touched.</p>
+  {% for grp in groups %}
+  <section class="panel dupe">
+    <ul class="dupe-list">
+      {% for g in grp %}
+      <li>
+        {{ cover(g, 'thumb') }}
+        <div>
+          <a href="{{ url_for('main.game_detail', gid=g.id) }}"><b>{{ g.title }}</b></a>
+          <div class="muted small">{{ g.platform|platform }} · {{ g.nversions }} version(s) · {{ g.bytes|size }} · added {{ g.created_at|day }}</div>
+          {% for o in grp if o.id != g.id %}
+          <form method="post" action="{{ url_for('main.game_merge', gid=g.id) }}">
+            {{ csrf() }}<input type="hidden" name="other" value="{{ o.id }}"><input type="hidden" name="back" value="{{ request.path }}">
+            <button class="btn small ghost" data-confirm="Merge “{{ o.title }}” into this entry and remove it?">Keep this, merge “{{ o.title }}” (#{{ o.id }}) into it</button>
+          </form>
+          {% endfor %}
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% else %}
+  <p class="empty">No duplicate titles.</p>
+  {% endfor %}
+</main>
+{% endblock %}

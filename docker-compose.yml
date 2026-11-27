@@ -25,6 +25,7 @@ services:
       JOB_LIGHT_WORKERS: "2"
       # TRUSTED_ORIGINS: games.example.com:8443   # reverse proxy that rewrites Host / non-standard port
       # COOKIE_SECURE: "1"                        # only when served over HTTPS
+      # STEAMGRIDDB_API_KEY: ...                  # optional, for box art (or set it in Settings > Integrations)
     volumes:
       - /mnt/user/appdata/gamelib:/data    # database, covers, temp uploads, backups (required)
       - /mnt/user/games:/games             # your games share (read-write for uploads)

@@ -4,6 +4,7 @@
 {% block body %}
 <main class="form-page">
   <a class="back" href="{{ url_for('main.index') }}">← Library</a>
+  <nav class="subnav"><a class="active" href="{{ url_for('main.settings_statuses') }}">Statuses</a><a href="{{ url_for('main.settings_integrations') }}">Integrations</a></nav>
   <h1>Statuses</h1>
   {% set pending_label = statuses|selectattr('key', 'equalto', 'pending')|map(attribute='label')|first %}
   <p class="muted">Every game has one status. New and scanned games start as <b>{{ pending_label }}</b>. The four built-in statuses can be renamed and recoloured but not deleted. Lower order numbers are listed first.</p>

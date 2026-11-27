@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased (1.4.0)
+
+Database schema v5: on first start, a `pre-v5` backup is written to `/data/backups`, then the database is migrated.
+
+- **Missing folders.** Rescans now mark versions whose folder is gone (skipped when the share looks unmounted). ⚠ in the library, a *Missing folders* filter, and *Tools → Missing folders* to relink a moved folder or forget a deleted one.
+- **Export / import.** The whole library as one JSON file, and a merge-import that matches games by version folder, then by title.
+- **Personal fields.** 1–5 star rating, favourite, hours played and private notes per game, with filters and sorting.
+- **Saved views.** Save any set of library filters under a name in the sidebar.
+- **Bulk edit.** Select games in the library and set status, rating or favourite, or add/remove tags and categories in one go.
+- **SteamGridDB covers.** Optional API key (Settings → Integrations or `STEAMGRIDDB_API_KEY`). Pick box art per game, or fetch covers for every game without one. Only on demand.
+- **Tools page** (🧰 in the top bar): duplicates with merge, old versions with bulk removal, storage by status, group and platform, plus the items above.
+- **Unraid Apps preparation:** MIT license, a 512 px PNG icon, a fuller template overview and the new optional SteamGridDB variable.
+
 ## 1.3.1 (2026-11-27)
 
 - **Artwork rescan for the whole library**, on demand only (*Jobs → Find artwork in game folders*). Scopes: games without a cover; also refresh covers that were found automatically; or every game, including uploaded covers (needs a confirmation tick). A game keeps its current cover when nothing is found. It never runs on a schedule, and an interrupted run isn't resumed after a restart.

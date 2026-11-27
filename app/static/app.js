@@ -361,4 +361,62 @@
     });
     window.addEventListener("beforeunload", (e) => { if (xhr) { e.preventDefault(); e.returnValue = ""; } });
   });
+  // ---- simple confirmations and "select all" (1.4.0 tools)
+  document.querySelectorAll("[data-confirm]").forEach((b) =>
+    b.addEventListener("click", (e) => { if (!confirm(b.dataset.confirm)) e.preventDefault(); }));
+  document.querySelectorAll("[data-check-all]").forEach((b) =>
+    b.addEventListener("click", () => {
+      const id = b.dataset.checkAll;
+      const boxes = [...document.querySelectorAll(`input[type=checkbox][name=vid][form="${id}"], #${id} input[type=checkbox][name=vid]`)];
+      const on = boxes.some((x) => !x.checked);
+      boxes.forEach((x) => { x.checked = on; });
+    }));
+
+  // ---- library: select games, then change them together
+  const bulk = document.getElementById("bulk");
+  if (bulk && list) {
+    const picks = () => [...list.querySelectorAll("input.pick")];
+    const count = bulk.querySelector("[data-bulk-count]");
+    const action = bulk.querySelector("[data-bulk-action]");
+    const value = bulk.querySelector("[data-bulk-value]");
+    const update = () => {
+      const n = picks().filter((p) => p.checked).length;
+      count.textContent = `${n} selected`;
+      bulk.querySelector("button.primary").disabled = n === 0;
+    };
+    const syncValue = () => {
+      const needs = action.selectedOptions[0]?.dataset.needs;
+      value.hidden = !needs;
+      value.placeholder = needs || "";
+      value.required = !!needs && !action.value.startsWith("rating");
+    };
+    const setSelecting = (on) => {
+      document.body.classList.toggle("selecting", on);
+      bulk.hidden = !on;
+      if (!on) picks().forEach((p) => { p.checked = false; });
+      update();
+    };
+    document.querySelectorAll("[data-select-toggle]").forEach((b) =>
+      b.addEventListener("click", () => setSelecting(!document.body.classList.contains("selecting"))));
+    bulk.querySelector("[data-select-all]").addEventListener("click", () => {
+      const all = picks();
+      const on = all.some((p) => !p.checked);
+      all.forEach((p) => { p.checked = on; });
+      update();
+    });
+    list.addEventListener("click", (e) => {
+      if (!document.body.classList.contains("selecting")) return;
+      const card = e.target.closest("li.card");
+      if (!card) return;
+      const box = card.querySelector("input.pick");
+      if (e.target !== box) { e.preventDefault(); box.checked = !box.checked; }
+      card.classList.toggle("picked", box.checked);
+      update();
+    });
+    list.addEventListener("change", (e) => {
+      if (e.target.matches("input.pick")) { e.target.closest("li.card").classList.toggle("picked", e.target.checked); update(); }
+    });
+    action.addEventListener("change", syncValue);
+    syncValue();
+  }
 })();

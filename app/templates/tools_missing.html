@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% from "macros.html" import csrf %}
+{% block title %}Missing folders · Tools{% endblock %}
+{% block body %}
+<main class="form-page wide">
+  <a class="back" href="{{ url_for('main.tools_hub') }}">← Tools</a>
+  <h1>Missing folders</h1>
+  <p class="muted">Version folders that were tracked but aren't on the games share any more. Each rescan updates this list; if the share isn't mounted, nothing is marked. Forgetting a version only removes it from the library: the game, its status and notes stay.</p>
+  <form method="post" action="{{ url_for('main.tools_missing_check') }}">{{ csrf() }}<button class="btn small ghost">Check now</button></form>
+  {% if items %}
+  <form id="forget" method="post" action="{{ url_for('main.tools_missing_forget') }}">{{ csrf() }}<input type="hidden" name="confirm" value="yes"></form>
+  <ul class="missing-list">
+    {% for m in items %}
+    <li class="panel">
+      <label class="check"><input type="checkbox" name="vid" value="{{ m.id }}" form="forget">
+        <span><a href="{{ url_for('main.game_detail', gid=m.game_id) }}"><b>{{ m.title }}</b></a> {{ m.label|vlabel }}</span></label>
+      <div class="v-path">📁 {{ m.folder }} <span class="muted small">· missing since {{ m.missing_since|day }}</span></div>
+      <form method="post" action="{{ url_for('main.tools_missing_relink') }}" class="row">
+        {{ csrf() }}<input type="hidden" name="vid" value="{{ m.id }}">
+        <select name="new" aria-label="New folder for {{ m.title }}">
+          {% for s in m.suggestions %}<option value="{{ s }}">{{ s }} (same name)</option>{% endfor %}
+          <option value="" {{ 'selected' if not m.suggestions }}>Choose an untracked folder…</option>
+          {% for p in untracked if p not in m.suggestions %}<option value="{{ p }}">{{ p }}</option>{% endfor %}
+        </select>
+        <button class="btn small">Relink</button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+  <div class="row">
+    <button type="button" class="btn small ghost" data-check-all="forget">Select all</button>
+    <button class="btn small danger" form="forget" data-confirm="Forget the selected versions? Games, statuses and notes stay.">Forget selected</button>
+  </div>
+  {% else %}
+  <p class="empty">Nothing is missing.</p>
+  {% endif %}
+</main>
+{% endblock %}

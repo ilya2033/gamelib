@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% from "macros.html" import csrf %}
+{% block title %}SteamGridDB · {{ game.title }}{% endblock %}
+{% block body %}
+<main class="form-page wide">
+  <a class="back" href="{{ url_for('main.game_edit', gid=game.id) }}">← Edit {{ game.title }}</a>
+  <h1>Cover from SteamGridDB</h1>
+  {% if error %}<p class="flash error">{{ error }}</p>{% endif %}
+  {% if sid %}
+  <p class="muted">Covers for <b>{{ sid_name or 'this game' }}</b>. <a href="{{ url_for('main.game_sgdb', gid=game.id, q=term) }}">Back to search results</a></p>
+  <ul class="sgdb-grid">
+    {% for c in covers %}
+    <li><form method="post">{{ csrf() }}<input type="hidden" name="url" value="{{ c.url }}">
+      <button class="sgdb-pick" title="Use this cover"><img src="{{ c.thumb }}" alt="" loading="lazy" referrerpolicy="no-referrer"><span class="muted small">{{ c.width }}×{{ c.height }}</span></button></form></li>
+    {% else %}<li class="muted">No portrait covers for this game on SteamGridDB.</li>{% endfor %}
+  </ul>
+  {% else %}
+  <form method="get" class="row">
+    <input name="q" value="{{ term }}" aria-label="Search title" style="flex: 1">
+    <button class="btn">Search</button>
+  </form>
+  <ul class="sgdb-results">
+    {% for r in results %}
+    <li><a class="btn ghost" href="{{ url_for('main.game_sgdb', gid=game.id, sid=r.id, name=r.name, q=term) }}">{{ r.name }}{% if r.year %} ({{ r.year }}){% endif %}</a></li>
+    {% else %}{% if not error %}<li class="muted">No matches. Try a shorter title.</li>{% endif %}{% endfor %}
+  </ul>
+  {% endif %}
+</main>
+{% endblock %}

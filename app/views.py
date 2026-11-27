@@ -7,7 +7,7 @@ import time
 import uuid
 from collections import defaultdict
 from datetime import datetime, timezone
-from urllib.parse import quote, unquote
+from urllib.parse import quote, unquote, urlencode
 
 from flask import (Blueprint, Response, abort, current_app, flash, jsonify,
                    redirect, render_template, request, send_file,
@@ -30,7 +30,12 @@ SORTS = {"name": ("g.title COLLATE NOCASE", "asc"),
          "added": ("g.created_at", "desc"),
          "updated": ("g.updated_at", "desc"),
          "status": ("s.sort", "asc"),
-         "status_changed": ("g.status_changed_at", "desc")}
+         "status_changed": ("g.status_changed_at", "desc"),
+         "rating": ("COALESCE(g.rating, 0)", "desc"),
+         "hours": ("COALESCE(g.hours, 0)", "desc")}
+# Library URL parameters (also what a saved view may contain)
+LIBRARY_KEYS = ("q", "platform", "tag", "status", "group", "category", "fav", "rating", "missing", "nocover",
+                "sort", "dir")
 COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
@@ -241,6 +246,64 @@ def set_manual_categories(gid, names, source="user"):
         db.execute("INSERT OR IGNORE INTO game_categories(game_id,category_id,source) VALUES (?,?,?)",
                    (gid, cid, source))
     prune_categories()
+
+
+def personal_from_form(f, game):
+    """Rating, favourite, hours and notes from a form. Fields that are not in
+    the form keep their current value."""
+    out = {k: game[k] for k in ("rating", "favorite", "hours", "notes")}
+    if "rating" in f:
+        r = f.get("rating", "").strip()
+        if r and (not r.isdigit() or not 1 <= int(r) <= 5):
+            raise UserError("Rating must be 1 to 5 stars.")
+        out["rating"] = int(r) if r else None
+    if "hours" in f:
+        h = f.get("hours", "").strip().replace(",", ".")
+        try:
+            out["hours"] = round(float(h), 1) if h else None
+        except ValueError:
+            raise UserError("Hours played must be a number.") from None
+        if out["hours"] is not None and not 0 <= out["hours"] <= 100000:
+            raise UserError("Hours played must be between 0 and 100000.")
+    if "notes" in f:
+        out["notes"] = f.get("notes", "").strip()[:20000]
+    if "favorite" in f or "personal" in f:     # a checkbox is absent when unticked
+        out["favorite"] = 1 if f.get("favorite") else 0
+    return out
+
+
+def save_personal(gid, p):
+    get_db().execute("UPDATE games SET rating=?, favorite=?, hours=?, notes=?, updated_at=? WHERE id=?",
+                     (p["rating"], p["favorite"], p["hours"], p["notes"], now(), gid))
+
+
+def mark_missing():
+    """Record which tracked version folders are gone (missing_since) and clear
+    the mark for those that are back. Skipped when the share looks unmounted
+    (empty or unreadable), so a missing mount doesn't flag the whole library.
+    Returns the number of missing versions, or None if skipped."""
+    root = games_dir()
+    try:
+        with os.scandir(root) as it:
+            if not any(True for _ in it):
+                return None
+    except OSError:
+        return None
+    db = get_db()
+    stamp, missing = now(), 0
+    for v in db.execute("SELECT id, folder, missing_since FROM versions").fetchall():
+        try:
+            exists = os.path.isdir(storage.resolve_in(root, v["folder"]))
+        except BadPath:
+            exists = False
+        if not exists:
+            missing += 1
+            if v["missing_since"] is None:
+                db.execute("UPDATE versions SET missing_since=? WHERE id=?", (stamp, v["id"]))
+        elif v["missing_since"] is not None:
+            db.execute("UPDATE versions SET missing_since=NULL WHERE id=?", (v["id"],))
+    db.commit()
+    return missing
 
 
 def game_location(gid):
@@ -608,6 +671,10 @@ def index():
     status = request.args.get("status", "")
     group = request.args.get("group", "")
     category = request.args.get("category", "")
+    fav = request.args.get("fav", "")
+    rating = request.args.get("rating", "")
+    missing = request.args.get("missing", "")
+    nocover = request.args.get("nocover", "")
     sort = request.args.get("sort", "name")
     if sort not in SORTS:
         sort = "name"
@@ -639,6 +706,15 @@ def index():
     elif group.isdigit():
         where.append("EXISTS (SELECT 1 FROM game_categories gc WHERE gc.game_id=g.id AND gc.category_id=?)")
         args.append(int(group))
+    if fav:
+        where.append("g.favorite=1")
+    if rating.isdigit() and 1 <= int(rating) <= 5:
+        where.append("g.rating>=?")
+        args.append(int(rating))
+    if missing:
+        where.append("EXISTS (SELECT 1 FROM versions v WHERE v.game_id=g.id AND v.missing_since IS NOT NULL)")
+    if nocover:
+        where.append("g.cover IS NULL")
     if category.isdigit():
         where.append("EXISTS (SELECT 1 FROM game_categories gc WHERE gc.game_id=g.id AND gc.category_id IN ("
                      "WITH RECURSIVE sub(id) AS (SELECT ? UNION SELECT c.id FROM categories c "
@@ -648,6 +724,7 @@ def index():
         "SELECT g.*, s.key AS status_key, s.label AS status_label, s.color AS status_color, "
         "(SELECT label FROM versions v WHERE v.game_id=g.id ORDER BY v.added_at DESC, v.id DESC LIMIT 1) AS latest, "
         "(SELECT COUNT(*) FROM versions v WHERE v.game_id=g.id) AS nversions, "
+        "(SELECT COUNT(*) FROM versions v WHERE v.game_id=g.id AND v.missing_since IS NOT NULL) AS nmissing, "
         "(SELECT group_concat(t.name, '\x1f') FROM game_tags gt JOIN tags t ON t.id=gt.tag_id WHERE gt.game_id=g.id) AS tagstr, "
         "(SELECT c.name FROM game_categories gc JOIN categories c ON c.id=gc.category_id "
         " WHERE gc.game_id=g.id AND c.is_group=1 LIMIT 1) AS group_name "
@@ -683,8 +760,15 @@ def index():
     status_counts = db.execute(
         "SELECT s.key, s.label, s.color, COUNT(g.id) n FROM statuses s "
         "LEFT JOIN games g ON g.status_id=s.id GROUP BY s.id ORDER BY s.sort, s.id").fetchall()
+    personal = db.execute(
+        "SELECT SUM(favorite) fav, SUM(rating >= 4) rated, SUM(cover IS NULL) nocover, "
+        "(SELECT COUNT(DISTINCT game_id) FROM versions WHERE missing_since IS NOT NULL) missing FROM games").fetchone()
+    views = db.execute("SELECT * FROM saved_views ORDER BY sort, name COLLATE NOCASE").fetchall()
+    current_query = urlencode([(k, request.args[k]) for k in LIBRARY_KEYS if request.args.get(k)])
     return render_template(
         "index.html", games=games, q=q, platform=platform, tag=tag, status=status, sort=sort,
+        fav=fav, rating=rating, missing=missing, nocover=nocover, personal=personal, views=views,
+        current_query=current_query,
         direction=direction, platform_counts=platform_counts, tag_counts=tag_counts,
         status_counts=status_counts, group=group, category=category, groups=groups,
         cat_tree=cat_tree, manual_cats=manual_cats, ungrouped=ungrouped, category_row=category_row,
@@ -706,6 +790,9 @@ def game_detail(gid):
             d["exists"] = os.path.isdir(storage.resolve_in(games_dir(), v["folder"]))
         except BadPath:
             d["exists"] = False
+        if d["exists"] and v["missing_since"]:
+            get_db().execute("UPDATE versions SET missing_since=NULL WHERE id=?", (v["id"],))
+            get_db().commit()
         versions.append(d)
     group, cat = game_location(gid)
     return render_template("game.html", game=game, versions=versions, tags=game_tags(gid),
@@ -723,6 +810,22 @@ def game_status(gid):
     if set_status(gid, row["id"]):
         get_db().commit()
         flash(f"Status set to {row['label']}.", "ok")
+    return redirect(url_for("main.game_detail", gid=gid))
+
+
+@bp.post("/games/<int:gid>/personal")
+def game_personal(gid):
+    """Rating / favourite / hours / notes from the game page (only the
+    fields present in the form change)."""
+    game = get_game(gid)
+    try:
+        save_personal(gid, personal_from_form(request.form, game))
+    except UserError as e:
+        flash(str(e), "error")
+        return redirect(url_for("main.game_detail", gid=gid))
+    get_db().commit()
+    if request.headers.get("X-Requested-With") == "fetch":
+        return jsonify(ok=True)
     return redirect(url_for("main.game_detail", gid=gid))
 
 
@@ -790,6 +893,7 @@ def game_edit(gid):
                 raise UserError("Title is required.")
             if platform not in PLATFORMS:
                 raise UserError("Unknown platform.")
+            personal = personal_from_form(f, game)
             new_cover = cover_from_form()
         except UserError as e:
             flash(str(e), "error")
@@ -802,6 +906,7 @@ def game_edit(gid):
         db = get_db()
         db.execute("UPDATE games SET title=?, platform=?, description=?, cover=?, updated_at=? WHERE id=?",
                    (title, platform, f.get("description", "").strip(), cover, now(), gid))
+        save_personal(gid, personal)
         set_tags(gid, parse_tags(f.get("tags")))
         set_manual_categories(gid, parse_categories(f.get("categories")))
         db.commit()
@@ -1473,6 +1578,7 @@ def register_filters(app):
     app.jinja_env.filters["size"] = human_size
     app.jinja_env.filters["platform"] = lambda p: PLATFORMS.get(p, "Other")
     app.jinja_env.filters["vlabel"] = version_label
+    app.jinja_env.filters["hours"] = lambda h: (f"{h:g} h" if h is not None else "")
     app.jinja_env.globals["PLATFORMS"] = PLATFORMS
 
     @app.context_processor

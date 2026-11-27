@@ -143,8 +143,9 @@ def discover(ctx, measure_changed=False):
             measured += 1
     db.execute("DELETE FROM scan_cache WHERE last_seen < date('now', '-30 days')")
     db.commit()
+    missing = v.mark_missing()
     ctx.progress(len(todo), len(todo), f"Found {len(rows)} new folder(s)", force=True)
-    return {"rows": rows, "relinks": relinks, "measured": measured,
+    return {"rows": rows, "relinks": relinks, "measured": measured, "missing": missing,
             "group_rows": [{"path": p, "rule": rules.get(p)} for p in groups]}
 
 

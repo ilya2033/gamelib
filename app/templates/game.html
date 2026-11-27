@@ -20,6 +20,7 @@
           <span class="plat p-{{ game.platform }}">{{ game.platform|platform }}</span>
           {% if status %}<span class="status-chip" style="--c: {{ status.color }}"><span class="dot"></span>{{ status.label }}</span>{% endif %}
           {% if versions %}<span>Latest <b>{{ versions[0].label|vlabel }}</b></span>{% endif %}
+          {% if game.hours %}<span>{{ game.hours|hours }} played</span>{% endif %}
           <span>Added {{ game.created_at|day }}</span>
           <span>Updated {{ game.updated_at|day }}</span>
         </div>
@@ -35,6 +36,13 @@
           </label>
           <noscript><button class="btn small">Set</button></noscript>
         </form>
+        <form method="post" action="{{ url_for('main.game_personal', gid=game.id) }}" class="personal-form">
+          {{ csrf() }}
+          <div class="rate" role="group" aria-label="Rating">
+            {% for n in range(1, 6) %}<button class="star {{ 'on' if game.rating and n <= game.rating }}" name="rating" value="{{ '' if game.rating == n else n }}" title="{{ 'Clear rating' if game.rating == n else n ~ ' star' ~ ('s' if n > 1) }}" aria-label="{{ 'Clear rating' if game.rating == n else 'Rate ' ~ n ~ ' of 5' }}">★</button>{% endfor %}
+          </div>
+          <button class="btn small ghost fav-btn {{ 'on' if game.favorite }}" name="favorite" value="{{ '' if game.favorite else '1' }}" aria-pressed="{{ 'true' if game.favorite else 'false' }}">{{ '♥ Favourite' if game.favorite else '♡ Favourite' }}</button>
+        </form>
         <div class="row">
           {% if versions and versions[0].exists %}<a class="btn primary" href="{{ url_for('main.version_download', vid=versions[0].id) }}">⬇ Download latest</a>{% endif %}
           <a class="btn" href="{{ url_for('main.version_new', gid=game.id) }}">＋ New version</a>
@@ -47,6 +55,7 @@
 
   <div class="detail-body">
     {% if game.description %}<section class="panel"><h2>About</h2><div class="desc">{{ game.description }}</div></section>{% endif %}
+    {% if game.notes %}<section class="panel"><h2>My notes</h2><div class="desc">{{ game.notes }}</div></section>{% endif %}
 
     {% if history %}
     <section class="panel">
@@ -70,7 +79,7 @@
           <div class="v-head">
             <span class="v-label">{{ v.label|vlabel }}</span>
             {% if loop.first %}<span class="badge ok">latest</span>{% endif %}
-            {% if not v.exists %}<span class="badge warn" title="Folder not found on the games share">missing</span>{% endif %}
+            {% if not v.exists %}<a class="badge warn" href="{{ url_for('main.tools_missing') }}" title="Folder not found on the games share: relink or forget it">missing</a>{% endif %}
             <span class="v-date">{{ v.added_at|day }}</span>
           </div>
           <div class="v-path" title="{{ v.folder }}">📁 {{ v.folder }} · {{ v.size_bytes|size }}</div>

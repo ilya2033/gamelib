@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% from "macros.html" import csrf %}
+{% block title %}Tools{% endblock %}
+{% block body %}
+<main class="form-page wide">
+  <a class="back" href="{{ url_for('main.index') }}">← Library</a>
+  <h1>Tools</h1>
+  <div class="tool-grid">
+    <a class="tool-card {{ 'attention' if counts.missing }}" href="{{ url_for('main.tools_missing') }}">
+      <h2>Missing folders</h2>
+      <p>{% if counts.missing %}<b>{{ counts.missing }}</b> version folder(s) are no longer on the share.{% else %}Every tracked folder was found at the last check.{% endif %}</p>
+      <span class="muted small">Relink moved folders or forget deleted ones.</span>
+    </a>
+    <a class="tool-card" href="{{ url_for('main.tools_duplicates') }}">
+      <h2>Duplicates</h2>
+      <p>{% if dupes %}<b>{{ dupes }}</b> title(s) appear more than once.{% else %}No duplicate titles.{% endif %}</p>
+      <span class="muted small">Merge two entries of the same game.</span>
+    </a>
+    <a class="tool-card" href="{{ url_for('main.tools_versions') }}">
+      <h2>Old versions</h2>
+      <p>{% if old.versions %}<b>{{ old.versions }}</b> older version(s) in {{ old.games }} game(s) use <b>{{ old.bytes|size }}</b>.{% else %}Every game has a single version.{% endif %}</p>
+      <span class="muted small">Review and delete versions you no longer need.</span>
+    </a>
+    <a class="tool-card" href="{{ url_for('main.tools_storage') }}">
+      <h2>Storage</h2>
+      <p><b>{{ counts.bytes|size }}</b> in {{ counts.versions }} version(s) of {{ counts.games }} game(s).</p>
+      <span class="muted small">Size by status, platform and group; the largest games.</span>
+    </a>
+  </div>
+
+  <section class="panel tool-panel">
+    <h2>Export and import</h2>
+    <p class="muted small">The export is one JSON file with every game's status, rating, favourite, hours, notes, tags, categories and version folders. Covers and files aren't included. Importing merges into this library: games are matched by version folder, then by title; new games are added only when their folders are on this share and not tracked yet.</p>
+    <div class="row">
+      <a class="btn" href="{{ url_for('main.tools_export') }}">⬇ Download export</a>
+      <form method="post" action="{{ url_for('main.tools_import') }}" enctype="multipart/form-data" class="row">
+        {{ csrf() }}
+        <input type="file" name="file" accept=".json,application/json" required aria-label="Export file to import">
+        <button class="btn ghost">Import</button>
+      </form>
+    </div>
+  </section>
+
+  <section class="panel tool-panel">
+    <h2>Covers from SteamGridDB</h2>
+    {% if has_sgdb %}
+    <p class="muted small">Searches SteamGridDB by each game's title and uses the first portrait cover. Only runs when you click; game titles are sent to SteamGridDB. Covers you pick on a game's page are never replaced by a refresh from the game folders.</p>
+    <form method="post" action="{{ url_for('main.tools_sgdb') }}" class="stack">
+      {{ csrf() }}
+      <label class="check"><input type="radio" name="scope" value="missing" checked> Games without a cover</label>
+      <label class="check"><input type="radio" name="scope" value="auto"> Also replace icon cards found in game folders</label>
+      <div><button class="btn small">Fetch covers</button></div>
+    </form>
+    {% else %}
+    <p class="muted small">Add a free SteamGridDB API key in <a href="{{ url_for('main.settings_integrations') }}">Settings → Integrations</a> to fetch box art.</p>
+    {% endif %}
+  </section>
+</main>
+{% endblock %}
