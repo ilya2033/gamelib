@@ -364,3 +364,9 @@ dialog.confirm p { margin: 0; color: var(--muted); }
   .linklike { display: inline-block; padding: 8px 2px; }
   .scan-row .pick { min-width: 28px; min-height: 40px; }
 }
+
+.artwork-rescan { margin: 1.2rem 0; padding: .9rem 1rem; border: 1px solid var(--line, #2a2f3a); border-radius: 10px; display: grid; gap: .45rem; }
+.artwork-rescan h2 { margin: 0; font-size: 1rem; }
+.artwork-rescan p { margin: 0; }
+.artwork-rescan label.check { min-height: 32px; }
+.artwork-rescan .btn { justify-self: start; }

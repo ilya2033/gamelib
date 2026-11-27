@@ -56,6 +56,7 @@ downloads. One Flask app, SQLite, one container, no external services.
 - **Cover:** if you don't upload one, a `cover.*`, `folder.*`, `logo.*` or `poster.*` image (png, jpg, webp) at the top of the game folder is used automatically.
 - **Read-only:** apart from uploads and the optional "also delete files" on delete, the app never changes the share. To make it strictly track-only, mount `/games` read-only.
 - **Background jobs:** everything slow runs in background workers, so pages never wait for the share. That covers scanning, importing, unpacking uploads, measuring folder sizes, deleting folders, and finding artwork.
+- **Artwork rescan (on demand only):** *Jobs → Find artwork in game folders* looks through the whole library for a cover image, engine icon, favicon or `.exe` icon. Pick the scope: games without a cover, also refresh covers that were found automatically, or every game including covers you uploaded (needs an extra tick). A game keeps its cover when nothing is found. It never runs on a schedule and isn't resumed after a restart.
   - **Jobs page:** the **⏳ Jobs** page and top-bar badge show progress, and you can **Cancel** a job.
   - **One at a time:** share-heavy jobs run one after another, so an Unraid array isn't thrashed.
   - **Restarts:** jobs survive a container restart. Scans and size checks are re-queued; an interrupted upload is cleaned up and marked failed.

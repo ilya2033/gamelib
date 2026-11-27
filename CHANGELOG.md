@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Artwork rescan for the whole library**, on demand only (*Jobs → Find artwork in game folders*). Scopes: games without a cover; also refresh covers that were found automatically; or every game, including uploaded covers (needs a confirmation tick). A game keeps its current cover when nothing is found. It never runs on a schedule, and an interrupted run isn't resumed after a restart.
+- Covers found automatically are now stored as `auto-*.webp`, so a refresh can tell them from uploaded ones. Covers found by 1.3.0 have no prefix and count as uploaded.
+- Artwork job v2 (adds `scope`); queued v1 jobs are upgraded to "without a cover".
 - **Docs: updating on Unraid.** The README no longer suggests re-downloading `gamelib.xml` on an existing install. That replaces `my-GameLib.xml`, where Unraid keeps your saved settings, and resets the password, ports and paths to defaults. Add new variables with **Edit → Add another Path, Port, Variable** instead.
 
 ## 1.3.0 (2026-11-26)

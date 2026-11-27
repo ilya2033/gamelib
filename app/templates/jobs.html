@@ -8,8 +8,17 @@
   <p class="muted">Scanning, importing, unpacking uploads, measuring and deleting folders run here in the background, one share job at a time. You can leave this page; jobs keep running.</p>
   <div class="row">
     <form method="post" action="{{ url_for('main.scan_rescan') }}">{{ csrf() }}<button class="btn small">Rescan share now</button></form>
-    <form method="post" action="{{ url_for('main.artwork_missing') }}">{{ csrf() }}<button class="btn small ghost">Find artwork for games without a cover</button></form>
   </div>
+  <form class="artwork-rescan" method="post" action="{{ url_for('main.artwork_missing') }}">{{ csrf() }}
+    <h2>Find artwork in game folders</h2>
+    <p class="muted small">Looks through every game's folders for a cover image, engine icon, favicon or the icon inside the game's .exe. It only runs when you click the button, never on a schedule.</p>
+    <label class="check"><input type="radio" name="scope" value="missing" checked> Games without a cover</label>
+    <label class="check"><input type="radio" name="scope" value="auto"> Also refresh covers that were found automatically</label>
+    <label class="check"><input type="radio" name="scope" value="all"> Every game, including covers you uploaded</label>
+    <label class="check"><input type="checkbox" name="confirm" value="yes"> Yes, replace uploaded covers (needed for "Every game")</label>
+    <p class="muted small">A game keeps its current cover when nothing is found in its folders.</p>
+    <button class="btn small">Rescan library for artwork</button>
+  </form>
   <p class="small"><a href="{{ url_for('main.jobs_list', all=0 if show_all else 1) }}">{{ 'Hide' if show_all else 'Show' }} folder re-check jobs</a></p>
   {% if jobs %}
   <ul class="job-list">

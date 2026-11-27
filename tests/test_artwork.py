@@ -191,3 +191,79 @@ def test_find_artwork_button(client, dirs):
     r = client.post(f"/games/{gid}/artwork")
     assert r.status_code == 302 and r.headers["Location"].endswith(f"/games/{gid}")
     assert sqlite3.connect(client.app.config["DB_PATH"]).execute("SELECT cover FROM games").fetchone()[0]
+
+
+# ------------------------------------------------- library-wide artwork rescan
+
+def add_game(client, games, name, files=None):
+    d = games / f"{name} v1"
+    d.mkdir()
+    (d / "readme.txt").write_text("x")
+    for fname, data in (files or {}).items():
+        (d / fname).write_bytes(data)
+    client.post("/scan", {"include": [f"{name} v1"], f"title:{name} v1": name, f"label:{name} v1": "1",
+                          f"platform:{name} v1": "windows"})
+    return d
+
+
+def covers(client):
+    return dict(sqlite3.connect(client.app.config["DB_PATH"]).execute("SELECT title, cover FROM games"))
+
+
+def rescan(client, scope, **extra):
+    return client.post("/artwork/missing", {"scope": scope, **extra})
+
+
+def test_artwork_rescan_scopes(client, dirs):
+    _, games = dirs
+    auto = add_game(client, games, "Auto", {"Auto.exe": make_pe([(32, 32, png(32))])})
+    add_game(client, games, "Bare")
+    up = add_game(client, games, "Uploaded")
+    gid = sqlite3.connect(client.app.config["DB_PATH"]).execute("SELECT id FROM games WHERE title='Uploaded'").fetchone()[0]
+    buf = io.BytesIO()
+    Image.new("RGB", (60, 80), (1, 2, 3)).save(buf, "PNG")
+    client.post(f"/games/{gid}/edit", {"title": "Uploaded", "platform": "windows",
+                                       "cover": (io.BytesIO(buf.getvalue()), "c.png")},
+                content_type="multipart/form-data")
+    before = covers(client)
+    assert before["Auto"].startswith("auto-") and before["Bare"] is None
+    assert before["Uploaded"] and not before["Uploaded"].startswith("auto-")
+
+    (games / "Bare v1" / "Bare.exe").write_bytes(make_pe([(32, 32, png(32))]))
+    (up / "Uploaded.exe").write_bytes(make_pe([(32, 32, png(32))]))
+    rescan(client, "missing")                                  # fills only the empty one
+    after = covers(client)
+    assert after["Bare"].startswith("auto-")
+    assert after["Auto"] == before["Auto"] and after["Uploaded"] == before["Uploaded"]
+
+    rescan(client, "auto")                                     # refreshes found covers, never uploaded ones
+    again = covers(client)
+    assert again["Auto"] != after["Auto"] and again["Uploaded"] == before["Uploaded"]
+    cdir = client.app.config["COVERS_DIR"]
+    assert not os.path.exists(os.path.join(cdir, after["Auto"]))        # old file removed
+
+    r = rescan(client, "all")                                  # not confirmed: nothing queued
+    assert r.status_code == 302 and covers(client)["Uploaded"] == before["Uploaded"]
+    rescan(client, "all", confirm="yes")
+    assert covers(client)["Uploaded"].startswith("auto-")
+
+    for f in auto.iterdir():                                   # nothing found: current cover stays
+        f.unlink()
+    kept = covers(client)["Auto"]
+    rescan(client, "auto")
+    assert covers(client)["Auto"] == kept
+    assert rescan(client, "bogus").status_code == 400
+
+
+def test_artwork_rescan_never_starts_itself(dirs):
+    from app import create_app, jobs
+    app = create_app({"TESTING": True, "DATA_DIR": str(dirs[0]), "GAMES_DIR": str(dirs[1]), "PASSWORD": "secret"})
+    con = sqlite3.connect(app.config["DB_PATH"])
+    con.execute("INSERT INTO jobs(id,kind,lane,label,state,params,version,created_at) VALUES "
+                "('art1','artwork','share','a','running','{}',1,'2026-01-01T00:00:00+00:00')")
+    con.commit()
+    app2 = create_app({"TESTING": True, "DATA_DIR": str(dirs[0]), "GAMES_DIR": str(dirs[1]), "PASSWORD": "secret",
+                       "JOBS_SYNC": False, "JOB_WORKERS_AUTOSTART": False})
+    state = sqlite3.connect(app2.config["DB_PATH"]).execute("SELECT state FROM jobs WHERE id='art1'").fetchone()[0]
+    assert state == "interrupted"                              # not re-queued after a restart
+    assert jobs.upgrade_params("artwork", 1, {}) == ({"scope": "missing"}, 2)   # v1 jobs keep their meaning

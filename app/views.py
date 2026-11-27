@@ -345,14 +345,17 @@ def set_tags(gid, tags):
     db.execute("DELETE FROM tags WHERE id NOT IN (SELECT tag_id FROM game_tags)")
 
 
-def save_cover(src):
+AUTO_PREFIX = "auto-"   # covers found in the game folder; uploaded ones have no prefix
+
+
+def save_cover(src, prefix=""):
     """Validate an image (file object or path), shrink it and store as WebP."""
     try:
         with Image.open(src) as img:
             img.load()
             img = img.convert("RGBA" if img.mode in ("RGBA", "LA", "P") else "RGB")
             img.thumbnail((600, 900))
-            name = uuid.uuid4().hex + ".webp"
+            name = prefix + uuid.uuid4().hex + ".webp"
             img.save(os.path.join(cfg("COVERS_DIR"), name), "WEBP", quality=85)
             return name
     except (UnidentifiedImageError, OSError, Image.DecompressionBombError, ValueError):
@@ -405,7 +408,7 @@ def save_icon_cover(src, title):
                  icon.getchannel("A"))
     card = Image.alpha_composite(card, shadow)
     card.alpha_composite(icon, ((W - size[0]) // 2, 220))
-    name = uuid.uuid4().hex + ".webp"
+    name = AUTO_PREFIX + uuid.uuid4().hex + ".webp"
     card.convert("RGB").save(os.path.join(cfg("COVERS_DIR"), name), "WEBP", quality=88)
     return name
 
@@ -422,7 +425,7 @@ def auto_cover(folder, title=""):
     kind, src = found
     try:
         if kind == "cover":
-            return save_cover(src)
+            return save_cover(src, AUTO_PREFIX)
         return save_icon_cover(io.BytesIO(src) if kind == "exe" else src, title)
     except UserError:
         return None
@@ -1319,9 +1322,24 @@ def jobs_api():
     return jsonify(active=[{k: j[k] for k in ("id", "label", "state", "pct", "message")} for j in jobs.active()])
 
 
+ARTWORK_SCOPES = {
+    "missing": "Find artwork for games without a cover",
+    "auto": "Refresh artwork found in game folders",
+    "all": "Find artwork for every game (replaces uploaded covers)",
+}
+
+
 @bp.post("/artwork/missing")
 def artwork_missing():
-    job_id = jobs.enqueue("artwork", {}, "Find artwork for games without a cover", exclusive=True)
+    """Library-wide artwork lookup. Only ever started from this button: no
+    schedule, scan or restart queues it. scope: missing | auto | all."""
+    scope = request.form.get("scope", "missing")
+    if scope not in ARTWORK_SCOPES:
+        abort(400, "Unknown artwork scope.")
+    if scope == "all" and request.form.get("confirm") != "yes":
+        flash("Tick the box to confirm that covers you uploaded may be replaced.", "error")
+        return redirect(url_for("main.jobs_list"))
+    job_id = jobs.enqueue("artwork", {"scope": scope}, ARTWORK_SCOPES[scope], exclusive=True)
     return redirect(url_for("main.job_page", job_id=job_id))
 
 

@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 from . import jobs, storage
 from .db import get_db
-from .jobs import handler
+from .jobs import handler, migrates
 from .storage import BadPath, UnsafeZip
 from . import views as v
 
@@ -300,11 +300,21 @@ def run_delete(ctx):
 
 # ----------------------------------------------------------------- artwork
 
-@handler("artwork")
+ARTWORK_QUERIES = {
+    "missing": "SELECT id, title, cover FROM games WHERE cover IS NULL",
+    "auto": "SELECT id, title, cover FROM games WHERE cover IS NULL OR cover LIKE 'auto-%'",
+    "all": "SELECT id, title, cover FROM games",
+}
+
+
+# Never retried after a restart: a library-wide artwork pass only runs when
+# someone clicks the button (it rewrites covers, so it must not start itself).
+@handler("artwork", retry_on_restart=False, version=2)
 def run_artwork(ctx):
+    scope = ctx.params.get("scope", "missing")
     db = get_db()
-    games = db.execute("SELECT id, title FROM games WHERE cover IS NULL").fetchall()
-    found = 0
+    games = db.execute(ARTWORK_QUERIES[scope] + " ORDER BY title COLLATE NOCASE").fetchall()
+    found = kept = 0
     for i, g in enumerate(games):
         ctx.check_cancel()
         ctx.progress(i, len(games), f"Looking in {g['title']}")
@@ -314,6 +324,17 @@ def run_artwork(ctx):
             if cover:
                 db.execute("UPDATE games SET cover=? WHERE id=?", (cover, g["id"]))
                 db.commit()
+                v.remove_cover(g["cover"])
                 found += 1
                 break
-    return {"redirect": "/", "message": f"Found artwork for {found} of {len(games)} game(s) without a cover."}
+        else:
+            kept += bool(g["cover"])     # nothing found: the current cover stays
+    msg = f"Found artwork for {found} of {len(games)} game(s)."
+    if kept:
+        msg += f" Kept the current cover for {kept} where nothing was found."
+    return {"redirect": "/", "message": msg}
+
+
+@migrates("artwork", 1)
+def _artwork_v1(params):
+    return {**params, "scope": "missing"}     # v1 only filled in missing covers
